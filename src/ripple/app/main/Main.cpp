@@ -150,6 +150,7 @@ runUnitTests(std::string const& pattern, std::string const& argument)
     setupConfigForUnitTests (&getConfig ());
     // VFALCO TODO Remove dependence on constructing Application object
     std::unique_ptr <Application> app (make_Application (deprecatedLogs()));
+
     using namespace beast::unit_test;
     beast::debug_ostream stream;
     reporter r (stream);
@@ -158,6 +159,22 @@ runUnitTests(std::string const& pattern, std::string const& argument)
         global_suites(), match_auto (pattern)));
     if (failed)
         return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
+#include "HistoryReplay.cpp"
+
+static
+int
+doProcessHistoricalTransactions ()
+{
+    // Config needs to be set up before creating Application
+    setupConfigForUnitTests (&getConfig ());
+    // VFALCO TODO Remove dependence on constructing Application object
+    std::unique_ptr <Application> app (make_Application (deprecatedLogs()));
+    processHistoricalTransactions();
+
+    // TODO
     return EXIT_SUCCESS;
 }
 
@@ -200,6 +217,7 @@ int run (int argc, char** argv)
     ("unittest-arg", po::value <std::string> ()->implicit_value (""), "Supplies argument to unit tests.")
     ("parameters", po::value< vector<string> > (), "Specify comma separated parameters.")
     ("quiet,q", "Reduce diagnotics.")
+    ("process-history", "process-history, reading from stdin")
     ("quorum", po::value <int> (), "Set the validation quorum.")
     ("verbose,v", "Verbose logging.")
     ("load", "Load the current ledger from the local DB.")
@@ -259,6 +277,7 @@ int run (int argc, char** argv)
         && !iResult
         && !vm.count ("parameters")
         && !vm.count ("fg")
+        && !vm.count ("process-history")
         && !vm.count ("standalone")
         && !vm.count ("unittest"))
     {
@@ -292,6 +311,11 @@ int run (int argc, char** argv)
             argument = vm["unittest-arg"].as<std::string>();
 
         return runUnitTests(vm["unittest"].as<std::string>(), argument);
+    }
+
+    if (vm.count ("process-history"))
+    {
+        return doProcessHistoricalTransactions();
     }
 
     if (!iResult)

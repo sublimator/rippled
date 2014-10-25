@@ -124,6 +124,9 @@ public:
     // used for the starting bootstrap ledger
     Ledger (const RippleAddress & masterID, std::uint64_t startAmount);
 
+    Ledger (Blob const& rawLedger, SHAMap::ref accountState);
+    Ledger (Blob const& rawLedger);
+
     Ledger (uint256 const& parentHash, uint256 const& transHash,
             uint256 const& accountHash,
             std::uint64_t totCoins, std::uint32_t closeTime,

@@ -121,6 +121,32 @@ Ledger::Ledger (uint256 const& parentHash,
     initializeFees ();
 }
 
+Ledger::Ledger (Blob const& rawLedger, SHAMap::ref accountState)
+    : mClosed (false)
+    , mValidated (false)
+    , mValidHash (false)
+    , mAccepted (false)
+    , mImmutable (false)
+{
+    Serializer s (rawLedger);
+    setRaw (s, false);
+    mAccountStateMap = accountState;
+    initializeFees ();
+}
+
+Ledger::Ledger (Blob const& rawLedger)
+    : mClosed (false)
+    , mValidated (false)
+    , mValidHash (false)
+    , mAccepted (false)
+    , mImmutable (false)
+{
+    Serializer s (rawLedger);
+    setRaw (s, false);
+    initializeFees ();
+}
+
+
 // Create a new ledger that's a snapshot of this one
 Ledger::Ledger (Ledger& ledger,
                 bool isMutable)
@@ -1816,6 +1842,7 @@ void Ledger::updateFees ()
 {
     if (mBaseFee)
         return;
+
     std::uint64_t baseFee = getConfig ().FEE_DEFAULT;
     std::uint32_t referenceFeeUnits = getConfig ().TRANSACTION_FEE_BASE;
     std::uint32_t reserveBase = getConfig ().FEE_ACCOUNT_RESERVE;
