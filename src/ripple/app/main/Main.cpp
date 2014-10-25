@@ -162,6 +162,7 @@ runUnitTests(std::string const& pattern, std::string const& argument)
     return EXIT_SUCCESS;
 }
 
+// void processHistoricalTransactions();
 #include "HistoryReplay.cpp"
 
 static

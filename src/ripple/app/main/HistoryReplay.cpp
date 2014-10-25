@@ -1,33 +1,20 @@
-/*
+/*#include <BeastConfig.h>
 
-I added these two constructors into Ledger.cpp/Ledger.h
+#include <ripple/unity/app.h>
+#include <ripple/unity/net.h>
+#include <ripple/unity/rpcx.h>
+#include <ripple/unity/websocket.h>
+#include <ripple/unity/resource.h>
+#include <ripple/unity/sitefiles.h>
 
-Ledger::Ledger (Blob const& rawLedger, SHAMap::ref accountState)
-    : mClosed (false)
-    , mValidated (false)
-    , mValidHash (false)
-    , mAccepted (false)
-    , mImmutable (false)
-{
-    Serializer s (rawLedger);
-    setRaw (s, false);
-    initializeFees ();
-    mAccountStateMap = accountState;
-}
+#include <ripple/http/Server.h>
+#include <fstream>
 
-Ledger::Ledger (Blob const& rawLedger)
-    : mClosed (false)
-    , mValidated (false)
-    , mValidHash (false)
-    , mAccepted (false)
-    , mImmutable (false)
-{
-    Serializer s (rawLedger);
-    setRaw (s, false);
-    initializeFees ();
-}
+#include <ripple/rpc/impl/JsonObject.h>
+#include <ripple/rpc/impl/JsonWriter.h>
+
+namespace ripple {
 */
-
 class StreamReader
 {
 public:
@@ -177,6 +164,22 @@ void getTreeHashesFrom(Blob& header, uint256& transHash,
     accountHash = sits.get256 ();
 }
 
+std::string transactionTypeHuman(TxType tt)
+{
+    return TxFormats::getInstance().findByType(tt)->getName();
+}
+
+void transactionTypeStats (std::map<TxType, int> stats,
+                           std::string name,
+                           Json::Value& json)
+{
+    Json::Value& to = json["name"] = Json::Value(Json::objectValue);
+    for(auto& pair : stats)
+    {
+        to[transactionTypeHuman(pair.first)] = pair.second;
+    }
+}
+
 typedef std::function<void (
                     // OpenLedger immutable
                     Ledger::ref,
@@ -184,10 +187,12 @@ typedef std::function<void (
                     Ledger::ref,
                     // Txn hash/id
                     uint256&,
+                    // TransactionIndex
+                    std::uint32_t,
                     // Txn raw bytes
                     Blob&,
                     // Meta raw bytes
-                    Blob&)> OnLedger;
+                    Blob&)> OnTransaction;
 
 
 class HistoryLoader : public StreamReader
@@ -226,10 +231,11 @@ public:
         return frame;
     }
 
-    bool readTransactions(OnLedger& onLedger)
+    bool readTransactions(OnTransaction& onTransaction)
     {
         bool ret = true;
 
+        int transaction_index = 0;
         while (nextFrame() == Frame::indexedTransaction)
         {
             uint256 index;
@@ -247,7 +253,8 @@ public:
             snapShot->addTransaction(index, Serializer(tx), Serializer(meta));
             snapShot->setImmutable();
 
-            onLedger(b4Tx, snapShot, index, tx, meta);
+            onTransaction(b4Tx, snapShot, index, transaction_index, tx, meta);
+            transaction_index++;
         }
         return ret;
     }
@@ -298,7 +305,7 @@ public:
     }
 
     // It would be nice to make this a `next()` function
-    bool parse(OnLedger onLedger)
+    bool parse(OnTransaction onTransaction)
     {
         bool ret = true;
 
@@ -340,7 +347,7 @@ public:
             }
 
             snapShot->setImmutable();
-            if (!(ret = readTransactions(onLedger)))
+            if (!(ret = readTransactions(onTransaction)))
             {
                 assert(false);
                 break;
@@ -369,11 +376,6 @@ public:
     }
 };
 
-std::string transactionTypeHuman(TxType tt)
-{
-    return TxFormats::getInstance().findByType(tt)->getName();
-}
-
 
 struct TransactionLedgers {
     Ledger::pointer beforeTx,
@@ -396,6 +398,43 @@ struct TransactionLedgers {
     }
 };
 
+
+SerializedTransaction::pointer transactionFromBlob(Blob& tx)
+{
+    Serializer serializer (tx);
+    SerializerIterator sit (serializer);
+    return std::make_shared<SerializedTransaction> (sit);
+}
+
+bool getMetaBlob(Ledger::ref ledger, uint256& txid,  Blob& meta)
+{
+    auto item = ledger->peekTransactionMap()->peekItem (txid);
+    if (item == nullptr)
+    {
+        return false;
+    }
+    else
+    {
+        SerializerIterator it (item->peekSerializer ());
+        it.getVL (); // skip transaction
+        meta = it.getVL();
+        return true;
+    }
+}
+
+bool differenceIsOnlyOrderOfIndexes(SLE::ref a, SLE::ref b)
+{
+    // TODO, check everything else is actually equal!!!!
+
+    // ordered set
+    std::set<uint256> indA, indB;
+
+    for(auto& h : a->getFieldV256(sfIndexes)) indA.insert(h);
+    for(auto& h : b->getFieldV256(sfIndexes)) indB.insert(h);
+
+    return indA == indB;
+}
+
 class HistoryReplayer
 {
 public:
@@ -405,18 +444,28 @@ public:
 
     HistoryLoader hl;
 
+    Json::Value rootReport;
+    Json::Value errorsReport;
+
     int total_txs   = 0,
         failed_txs  = 0,
         meta_equal  = 0,
         state_equal = 0,
         dirs_only   = 0;
 
-    HistoryReplayer(HistoryLoader& hl_) : hl(hl_) {}
+    HistoryReplayer(HistoryLoader& hl_) :
+        hl(hl_),
+        rootReport(Json::objectValue),
+        errorsReport(Json::objectValue)
+    {
+
+    }
 
     void process() {
         hl.parse([&]( Ledger::ref beforeTransactionApplied,
                       Ledger::ref afterHistoricalResult,
                       uint256& txid,
+                      std::uint32_t transaction_index,
                       Blob& tx,
                       Blob& meta )
         {
@@ -429,12 +478,8 @@ public:
             TransactionEngine engine (ledger);
 
             bool applied;
-            Serializer serializer (tx);
-            SerializerIterator sit (serializer);
-            SerializedTransaction st (sit);
-
-            (void) engine.applyTransaction (
-                                            st,
+            SerializedTransaction::pointer st (transactionFromBlob(tx));
+            (void) engine.applyTransaction (*st,
                                             // tapNONE means we should have metadata
                                             tapNONE | tapNO_CHECK_SIGN,
                                             applied);
@@ -445,19 +490,13 @@ public:
                 total_txs++;
 
                 Blob reMeta;
-                {
-                    auto item = ledger->peekTransactionMap()->peekItem (txid);
-                    SerializerIterator it (item->peekSerializer ());
-                    it.getVL (); // skip transaction
-                    reMeta = it.getVL();
-                }
-
+                getMetaBlob(ledger, txid, reMeta);
 
                 TransactionLedgers tl (beforeTransactionApplied,
                                        ledger, // after Transaction
                                        afterHistoricalResult);
 
-                onTransactionApplied(tl, st, meta, reMeta);
+                onTransactionApplied(tl, txid, transaction_index, *st, meta, reMeta);
             }
             else
             {
@@ -469,8 +508,24 @@ public:
 
     ~HistoryReplayer() {};
 
+    void prepareReport() {
+        rootReport["errors"] =  errorsReport;
+        Json::Value& stats = rootReport["stats"] = Json::Value(Json::objectValue);
+
+        stats["total_transactions"]  = total_txs;
+        stats["meta_equal"]          = meta_equal;
+        stats["state_equal"]         = state_equal;
+        stats["dirs_only_unequal"]   = dirs_only;
+        stats["failed_transactions"] = failed_txs;
+
+        transactionTypeStats(errors_by_type, "errors_by_type", stats);
+        transactionTypeStats(txns_by_type, "txns_by_type", stats);
+    }
+
     void onTransactionApplied (
                   TransactionLedgers& tl,
+                  uint256 txid,
+                  std::uint32_t transaction_index,
                   SerializedTransaction& tx,
                   Blob& meta,
                   Blob& reMeta)
@@ -495,6 +550,7 @@ public:
         }
 
         int n_deltas = deltas.size();
+        std::map<uint256, std::pair<SLE::pointer, SLE::pointer>> filteredDeltas;
 
         for (auto&  pair : deltas) {
             auto& item = pair.second;
@@ -506,7 +562,6 @@ public:
             if (a != nullptr) {
                 sle_a = (std::make_shared<SLE>(a->peekSerializer (),
                                                a->getTag()));
-                // Skip Lists change every ledger
                 if (sle_a ->getType() == ltLEDGER_HASHES) continue;
             }
 
@@ -523,12 +578,7 @@ public:
 
                 if ((sle_a -> getType()) == ltDIR_NODE)
                 {
-                    std::set<uint256> indA, indB;
-
-                    for(auto& h : sle_a->getFieldV256(sfIndexes)) indA.insert(h);
-                    for(auto& h : sle_b->getFieldV256(sfIndexes)) indB.insert(h);
-
-                    if (indA == indB)
+                    if (differenceIsOnlyOrderOfIndexes(sle_a, sle_b))
                     {
                         n_deltas--;
                         equal = true;
@@ -537,23 +587,12 @@ public:
 
                 if (!equal)
                 {
-                    std::cout << "historical: " << sle_a->getJson(0) << std::endl;
-                    std::cout << "replayed: " << sle_b->getJson(0) << std::endl;
+                    filteredDeltas[pair.first] = std::make_pair(sle_a, sle_b);
                 }
             }
-
-            if (a != nullptr && b == nullptr)
-            {
-                std::cout << "historical: " << sle_a->getJson(0) << std::endl;
-                std::cout << "replayed: missing" << std::endl;
+            else {
+                filteredDeltas[pair.first] = std::make_pair(sle_a, sle_b);
             }
-
-            if (b != nullptr && a == nullptr)
-            {
-                std::cout << "historical: missing" << std::endl;
-                std::cout << "replayed: " << sle_b->getJson(0) << std::endl;
-            }
-
         }
 
         if (failed && n_deltas == 0)
@@ -565,7 +604,50 @@ public:
         {
             errors_by_type[tx.getTxnType()]++;
             failed_txs++;
-            std::cout << "--------------------------------------------------------" << std::endl;
+
+            Json::Value deltasJson (Json::arrayValue);
+            Json::Value error (Json::objectValue);
+
+            // just using an ordered map for shits and giggles (inherent ordering)
+            for(auto& pair: filteredDeltas)
+            {
+
+                // TODO: Why didn't this work? Segfaulted
+                // SLE::pointer historical (pair.second.first);
+                // SLE::pointer replayed (pair.second.second);
+
+                Json::Value delta (Json::objectValue);
+
+                if (pair.second.first)
+                {
+                    // TODO: To just use hex or not??
+                    delta["historical"] = pair.second.first->getJson(0);
+                }
+                else {
+                    delta["historical"] = "missing";
+                }
+                if (pair.second.second)
+                {
+                    delta["replayed"] = pair.second.second->getJson(0);
+                }
+                else {
+                    delta["replayed"] = "missing";
+                }
+
+                deltasJson.append(delta);
+            }
+
+            error["tx_json"] = tx.getJson(0); // is this a copy ???
+            error["deltas"] = deltasJson;
+
+            // This is pretty damn slow ...
+            // error["historical_meta"] = TransactionMetaSet (txid, tl.beforeTx->getLedgerSeq(), meta).getJson(0);
+            // error["replayed_meta"] = TransactionMetaSet (txid, tl.beforeTx->getLedgerSeq(), reMeta).getJson(0);
+
+            error["historical_meta"] = strHex(meta);
+            error["replayed_meta"] = strHex(reMeta);
+
+            errorsReport[to_string(txid)] = error;
         }
     }
 };
@@ -577,30 +659,14 @@ void processHistoricalTransactions()
     HistoryLoader hl( &std::cin );
     HistoryReplayer hr (hl);
     hr.process();
+    hr.prepareReport();
 
-    std::cout << "total transactions:  " << hr.total_txs << std::endl;
-    std::cout << "meta_equal:          " << hr.meta_equal << std::endl;
-    std::cout << "state_equal:         " << hr.state_equal << std::endl;
-    std::cout << "dirs_only_unequal:   " << hr.dirs_only << std::endl;
-    std::cout << "failed transactions: " << hr.failed_txs << std::endl;
-
-    std::cout << "\nErrors by type: " << std::endl;
-    for(auto& pair : hr.errors_by_type)
-    {
-        std::cout << transactionTypeHuman(pair.first) << ": "
-                                << pair.second
-                  << std::endl;
-    }
-
-    std::cout << "\nTransactions by type: " << std::endl;
-    for(auto& pair : hr.txns_by_type)
-    {
-        std::cout << transactionTypeHuman(pair.first) << ": "
-                                << pair.second
-                  << std::endl;
-    }
+    Json::StyledStreamWriter writer;
+    writer.write (std::cout, hr.rootReport);
 
     std::cout << "took ms: " << (beast::Time::getCurrentTime() - t)
                                 .inMilliseconds() << std::endl;
 
 }
+
+// } //  </namespace:ripple>
