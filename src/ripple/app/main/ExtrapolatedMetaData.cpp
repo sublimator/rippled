@@ -46,6 +46,17 @@ std::vector<uint256> lineDirectoryIndexes(SLE::ref line)
 }
 // -----------------------------------------------------------------------------
 
+// TODO: MetaDataExtrapolater makes -> ExtrapolatedMetaData
+
+// The stateCache would belong to the MetaDataExtrapolater, and then you'd push
+// a Transaction::pointer | TransactionMetaSet::pointer and whatever state for
+// each transaction.
+
+// The extrapolater would check that the transaction is the next logical txn.
+// i.e. the TransactionIndex and/or ledger_index were correct.
+
+// The ExtrapolatedMetaData would have an apply(SHAMap::ref state) method to
+// apply it to an account state.
 class ExtrapolatedMetaData
 {
 public:
@@ -75,8 +86,8 @@ public:
                           state(accountState),
                           stateCache(cache)
     {
-        // Doing work in the constructor, naughty ...
         // TODO: MetaDataExtrapolater makes -> ExtrapolatedMetaData
+        // Doing work in the constructor, naughty ...
         process();
     }
 
@@ -249,9 +260,9 @@ public:
         }
     }
 
-    LedgerEntryType ledgerEntryType(STObject& from)
+    LedgerEntryType ledgerEntryType(STObject& o)
     {
-        return static_cast<LedgerEntryType>(from.getFieldU16 (sfLedgerEntryType));
+        return static_cast<LedgerEntryType>(o.getFieldU16 (sfLedgerEntryType));
     }
 
     SLE::pointer getSLE(const uint256& index) {
@@ -287,7 +298,7 @@ public:
         for (auto const& field: merged)
         {
             int ix = existing->getFieldIndex(field.getFName());
-            // TODO, somehow take ownership of these elements
+            // TODO: somehow take ownership of these elements
             data.replace(ix, field.clone().release());
         }
 
@@ -343,8 +354,10 @@ public:
       "PreviousTxnLgrSeq" : 6220879
     }
 
+
         Note that we discard the `LedgerIndex` and keep only final fields in
-        `sfNewFields` and `sfFinalFields`
+        `sfNewFields` and `sfFinalFields`.
+
     */
     {
         for (auto const& it: affected)
@@ -360,7 +373,9 @@ public:
                         const STObject* o (dynamic_cast<const STObject*> (&it));
                         for (auto const& it2: *o)
                         {
-                            // TODO, somehow take ownership of these elements
+                            // TODO: somehow take ownership of these elements
+                            // all these clone().release() calls of duplicate()
+                            // feels kind of wasteful.
                             out.addObject(it2);
                         }
                     }
