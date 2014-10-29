@@ -31,18 +31,14 @@ uint256 trustlineDirectory(SLE::ref line,
 
 std::vector<uint256> offerDirectoryIndexes(SLE::ref offer)
 {
-    std::vector<uint256> ret;
-    ret.push_back(offerOwnerDirectory(offer));
-    ret.push_back(offerBookDirectory(offer));
-    return ret;
+    return { offerOwnerDirectory(offer),
+             offerBookDirectory(offer) };
 }
 
 std::vector<uint256> lineDirectoryIndexes(SLE::ref line)
 {
-    std::vector<uint256> ret;
-    ret.push_back(trustlineDirectory(line, sfLowLimit, sfLowNode));
-    ret.push_back(trustlineDirectory(line, sfHighLimit, sfHighNode));
-    return ret;
+    return { trustlineDirectory(line, sfLowLimit, sfLowNode),
+             trustlineDirectory(line, sfHighLimit, sfHighNode) };
 }
 // -----------------------------------------------------------------------------
 
