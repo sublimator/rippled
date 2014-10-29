@@ -20,7 +20,7 @@ namespace ripple {
 
 // If we aren't replaying transactions, just extrapolate the metadata (a cheap
 // way of testing - we already have diffing / reporting machinery in place)
-#define REPLAY_TRANSACTIONS 0
+#define REPLAY_TRANSACTIONS 1
 
 static int maxDeltas (2147483648); // 2 ^ 31
 
@@ -745,6 +745,15 @@ void processHistoricalTransactions()
 
     Json::StyledStreamWriter writer;
     writer.write (ofs, hr.report);
+
+// TODO: Clean this up, but for now just piggy backing on all this existing
+// reporting infrastucture, to compare the C++ expanded meta to that in the
+// history stream.
+#if REPLAY_TRANSACTIONS
+    std::cout << "Reprocessing transactions" << std::endl;
+#else
+    std::cout << "Reprocessing meta" << std::endl;
+#endif
 
     std::cout << ("\n\n"  "Wrote report to $CWD/") << reportName << std::endl;
     std::cout << "Reprocessing took ms: " << (beast::Time::getCurrentTime() - t)
