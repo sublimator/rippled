@@ -707,7 +707,8 @@ public:
             txJson["ledger_index"] = tl.beforeTx->getLedgerSeq();
 
             Json::Value&
-                deltasJson = error["deltas"] = Json::Value(Json::arrayValue);
+                deltasJson = error["account_state_deltas"]
+                    = Json::Value(Json::arrayValue);
 
             for(auto& pair: filteredDeltas)
             {
@@ -716,18 +717,18 @@ public:
 
                 Json::Value& delta = deltasJson.append (Json::objectValue);
 
-                delta["historical"] = h ? h->getJson(0): "missing";
-                delta["replayed"] = r ? r->getJson(0): "missing";
+                delta["after_historical_tx"] = h ? h->getJson(0): "missing";
+                delta["after_replayed_tx"] = r ? r->getJson(0): "missing";
 
                 if (h != nullptr)
                 {
                     SLE::pointer o (tl.beforeTx->getSLE(h->getIndex()));
-                    delta["beforeTx"] = o ? o->getJson(0): "missing";
+                    delta["before_tx"] = o ? o->getJson(0): "missing";
                 }
                 if (r != nullptr)
                 {
                     SLE::pointer o (tl.beforeTx->getSLE(r->getIndex()));
-                    delta["beforeTx"] = o ? o->getJson(0): "missing";
+                    delta["before_tx"] = o ? o->getJson(0): "missing";
                 }
             }
 
