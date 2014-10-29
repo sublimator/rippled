@@ -18,6 +18,10 @@ namespace ripple {
 
 // -----------------------------------------------------------------------------
 
+// If we aren't replaying transactions, just extrapolate the metadata (a cheap
+// way of testing - we already have diffing / reporting machinery in place)
+#define REPLAY_TRANSACTIONS 0
+
 static int maxDeltas (2147483648); // 2 ^ 31
 
 typedef std::map<uint256, std::pair<SLE::pointer, SLE::pointer>> SLEShaMapDelta;
@@ -194,9 +198,9 @@ std::string transactionTypeHuman(TxType tt)
     return TxFormats::getInstance().findByType(tt)->getName();
 }
 
-void transactionTypeStats (std::map<TxType, int>& stats,
+void transactionTypeStats (Json::Value& json,
                            std::string name,
-                           Json::Value& json)
+                           std::map<TxType, int>& stats)
 {
     Json::Value& to = json[name] = Json::Value(Json::objectValue);
     for(auto& pair : stats)
@@ -430,8 +434,10 @@ bool getMetaBlob(Ledger::ref ledger, uint256& txid,  Blob& meta)
     }
 }
 
-bool differenceIsOnlyOrderOfIndexes(SLE::ref a, SLE::ref b)
+bool directoryDifferenceIsOnlyOrderOfIndexes(SLE::ref a, SLE::ref b)
 {
+    assert (a->getType() == ltDIR_NODE);
+
     for (auto const& obj : *a)
     {
         if (obj.getFName () == sfIndexes) {
@@ -460,11 +466,13 @@ bool differenceIsOnlyOrderOfIndexes(SLE::ref a, SLE::ref b)
 size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
 
     for (auto&  pair : deltas) {
-        auto& item = pair.second;
-        SHAMapItem::ref a = item.first;
-        SHAMapItem::ref b = item.second;
-        SLE::pointer sle_a;
-        SLE::pointer sle_b;
+        auto& index = pair.first;
+        auto& diff = pair.second;
+
+        SHAMapItem::ref a = diff.first,
+                        b = diff.second;
+        SLE::pointer sle_a,
+                     sle_b;
 
         if (a != nullptr) {
             sle_a = (std::make_shared<SLE>(a->peekSerializer (),
@@ -485,7 +493,7 @@ size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
 
             if ((sle_a -> getType()) == ltDIR_NODE)
             {
-                if (differenceIsOnlyOrderOfIndexes(sle_a, sle_b))
+                if (directoryDifferenceIsOnlyOrderOfIndexes(sle_a, sle_b))
                 {
                     equal = true;
                 }
@@ -493,11 +501,11 @@ size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
 
             if (!equal)
             {
-                filteredDeltas[pair.first] = std::make_pair(sle_a, sle_b);
+                filteredDeltas[index] = std::make_pair(sle_a, sle_b);
             }
         }
         else {
-            filteredDeltas[pair.first] = std::make_pair(sle_a, sle_b);
+            filteredDeltas[index] = std::make_pair(sle_a, sle_b);
         }
     }
 
@@ -516,6 +524,7 @@ public:
 
     Json::Value report;
     Json::Value errorsReport;
+    std::shared_ptr<SLEMap> stateCache;
 
     int totalTxns = 0,
         failedTxns = 0,
@@ -527,9 +536,49 @@ public:
     HistoryReplayer(HistoryLoader& hl_) :
         hl(hl_),
         report(Json::objectValue),
-        errorsReport(Json::objectValue)
+        errorsReport(Json::objectValue),
+        stateCache(std::make_shared<SLEMap>())
     {
+    }
 
+    void extrapolateMetaData(Ledger::ref ledger,
+                             Ledger::ref applyTo,
+                             uint256& txid,
+                             Blob& tx,
+                             Blob& meta) {
+
+        Transaction::pointer tp (Transaction::sharedTransaction(tx, Validate::NO));
+        auto ledgerIndex = ledger->getLedgerSeq();
+        tp->setLedger(ledgerIndex);
+        auto tmsp (std::make_shared<TransactionMetaSet>(txid,
+                                                        ledgerIndex,
+                                                        meta));
+        ExtrapolatedMetaData extrapolated (
+            tp,
+            tmsp,
+            ledger->peekAccountStateMap(),
+            stateCache
+        );
+
+        SHAMap::ref as = applyTo->peekAccountStateMap();
+
+        for (auto& index : extrapolated.removed)
+        {
+            as->delItem(index);
+        }
+        for (auto& pair : extrapolated.added)
+        {
+            SLE& sle = *pair.second;
+            SHAMapItem item (sle.getIndex(), sle.getSerializer());
+            as->addItem(item, false, false);
+        }
+        for (auto& pair : extrapolated.updated)
+        {
+            SLE& sle = *pair.second;
+            as->updateGiveItem(
+                std::make_shared<SHAMapItem>(
+                        sle.getIndex(), sle.getSerializer()), false, false);
+        }
     }
 
     void process() {
@@ -546,21 +595,33 @@ public:
                     std::make_shared<Ledger> (
                         std::ref(*beforeTransactionApplied), true) );
 
-            TransactionEngine engine (replayLedger);
 
-            bool applied;
             SerializedTransaction::pointer st (transactionFromBlob(tx));
+
+        #if REPLAY_TRANSACTIONS
+            TransactionEngine engine (replayLedger);
+            bool applied;
             TER result (engine.applyTransaction (*st,
                                                  tapNO_CHECK_SIGN,
                                                  applied));
+        #else
+
+            bool applied = true;
+            TER result = tesSUCCESS;
+            extrapolateMetaData (beforeTransactionApplied, replayLedger, txid, tx, meta);
+
+        #endif
 
             replayLedger->setImmutable();
             if (applied)
             {
                 totalTxns++;
-
+            #if REPLAY_TRANSACTIONS
                 Blob reMeta;
                 getMetaBlob(replayLedger, txid, reMeta);
+            #else
+                Blob& reMeta = meta;
+            #endif
 
                 TransactionLedgers tl (beforeTransactionApplied,
                                        replayLedger, // after Transaction
@@ -591,8 +652,8 @@ public:
         stats["failed_transactions"] = failedTxns;
         stats["unapplied"] = static_cast<std::uint32_t>(unapplied.size());
 
-        transactionTypeStats(errorsBytype, "errors_by_type", stats);
-        transactionTypeStats(txnsByType, "txns_by_type", stats);
+        transactionTypeStats(stats, "errors_by_type", errorsBytype);
+        transactionTypeStats(stats, "txns_by_type", txnsByType);
     }
 
     void onTransactionApplied (
@@ -610,28 +671,31 @@ public:
         SHAMap::Delta deltas;
         tl.resultDelta(deltas);
 
-        bool failed = true;
-        bool metaIsEqual = false;
+        bool metaIsEqual = meta == reMeta;
+        bool stateIsEqual = false;
+        bool stateIsEffectivelyEqual = false;
 
-        if (meta == reMeta)
+        SLEShaMapDelta filteredDeltas;
+
+        if (metaIsEqual)
         {
-            metaIsEqual=true;
             metaEqual++;
-            failed = false;
         }
         if (deltas.size() == 0)
         {
+            stateIsEqual = true;
             stateEqual++;
-            failed = false;
         }
-
-        SLEShaMapDelta filteredDeltas;
-        if (failed && filterDeltas(deltas, filteredDeltas) == 0)
+        else if (filterDeltas(deltas, filteredDeltas) == 0)
         {
-            failed = !metaIsEqual;
+            stateIsEffectivelyEqual = true;
             effectivelyEqual++;
         }
-        if (failed)
+
+        bool success = metaIsEqual || // &&  TODO << should be AND
+                      (stateIsEqual || stateIsEffectivelyEqual);
+
+        if (!success)
         {
             failedTxns++;
             errorsBytype[tx.getTxnType()]++;

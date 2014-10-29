@@ -163,6 +163,7 @@ runUnitTests(std::string const& pattern, std::string const& argument)
 }
 
 // void processHistoricalTransactions();
+#include "ExtrapolatedMetaData.cpp"
 #include "HistoryReplay.cpp"
 
 static
