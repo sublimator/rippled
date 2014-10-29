@@ -701,7 +701,10 @@ public:
             errorsBytype[tx.getTxnType()]++;
 
             Json::Value error (Json::objectValue);
-            error["tx_json"] = tx.getJson(0);
+            Json::Value& txJson = error["_tx_json"] = tx.getJson(0);
+
+            txJson["transaction_index"] = transactionIndex;
+            txJson["ledger_index"] = tl.beforeTx->getLedgerSeq();
 
             Json::Value&
                 deltasJson = error["deltas"] = Json::Value(Json::arrayValue);
@@ -715,6 +718,17 @@ public:
 
                 delta["historical"] = h ? h->getJson(0): "missing";
                 delta["replayed"] = r ? r->getJson(0): "missing";
+
+                if (h != nullptr)
+                {
+                    SLE::pointer o (tl.beforeTx->getSLE(h->getIndex()));
+                    delta["beforeTx"] = o ? o->getJson(0): "missing";
+                }
+                if (r != nullptr)
+                {
+                    SLE::pointer o (tl.beforeTx->getSLE(r->getIndex()));
+                    delta["beforeTx"] = o ? o->getJson(0): "missing";
+                }
             }
 
             auto metaJson = [&](Json::Value& j, Blob& m) {
