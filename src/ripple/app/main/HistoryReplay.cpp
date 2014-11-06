@@ -160,11 +160,14 @@ public:
         if (update)
         {
             return accountState->updateGiveItem(
-                    std::make_shared<SHAMapItem>(item), false, false);
+                    std::make_shared<SHAMapItem>(item),
+                            /*is_tx=*/false,
+                            /*has_meta=*/false);
         }
         else
         {
-            return accountState->addItem(item, false, false);
+            return accountState->addItem(item, /*is_tx=*/false,
+                                               /*has_meta=*/false);
         }
     }
 
@@ -202,7 +205,7 @@ void transactionTypeStats (Json::Value& json,
                            std::string name,
                            std::map<TxType, int>& stats)
 {
-    Json::Value& to = json[name] = Json::Value(Json::objectValue);
+    Json::Value& to = json[name] = Json::objectValue;
     for(auto& pair : stats)
     {
         to[transactionTypeHuman(pair.first)] = pair.second;
@@ -513,6 +516,31 @@ size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
 }
 
 
+void delta_json( Json::Value& delta,
+                 // before_tx
+                 SLE::pointer o,
+                 // after_historical_tx
+                 SLE::pointer h,
+                 // after_replayed_tx
+                 SLE::pointer r)
+{
+    if (o)
+    {
+        delta["before_tx"] = o->getJson(0);
+    }
+
+    if (h)
+    {
+        delta["after_historical_tx"] = h->getJson(0);
+    }
+
+    if (r)
+    {
+        delta["after_replayed_tx"] = r->getJson(0);
+    }
+}
+
+
 class HistoryReplayer
 {
 public:
@@ -547,7 +575,9 @@ public:
                              Blob& tx,
                              Blob& meta) {
 
-        Transaction::pointer tp (Transaction::sharedTransaction(tx, Validate::NO));
+        Transaction::pointer tp (
+                Transaction::sharedTransaction(tx, Validate::NO));
+
         auto ledgerIndex = ledger->getLedgerSeq();
         tp->setLedger(ledgerIndex);
         auto tmsp (std::make_shared<TransactionMetaSet>(txid,
@@ -570,14 +600,15 @@ public:
         {
             SLE& sle = *pair.second;
             SHAMapItem item (sle.getIndex(), sle.getSerializer());
-            as->addItem(item, false, false);
+            as->addItem(item, /*is_tx=*/false, /*has_meta=*/false);
         }
         for (auto& pair : extrapolated.updated)
         {
             SLE& sle = *pair.second;
-            as->updateGiveItem(
+            as->updateGiveItem (
                 std::make_shared<SHAMapItem>(
-                        sle.getIndex(), sle.getSerializer()), false, false);
+                        sle.getIndex(), sle.getSerializer()),
+                    /*is_tx=*/false, /*has_meta=*/false);
         }
     }
 
@@ -595,7 +626,6 @@ public:
                     std::make_shared<Ledger> (
                         std::ref(*beforeTransactionApplied), true) );
 
-
             SerializedTransaction::pointer st (transactionFromBlob(tx));
 
         #if REPLAY_TRANSACTIONS
@@ -605,10 +635,13 @@ public:
                                                  tapNO_CHECK_SIGN,
                                                  applied));
         #else
-
             bool applied = true;
             TER result = tesSUCCESS;
-            extrapolateMetaData (beforeTransactionApplied, replayLedger, txid, tx, meta);
+            extrapolateMetaData (beforeTransactionApplied,
+                                 replayLedger,
+                                 txid,
+                                 tx,
+                                 meta);
 
         #endif
 
@@ -642,8 +675,7 @@ public:
 
     void prepareReport() {
         report["errors"] =  errorsReport;
-        Json::Value& stats   =  report["stats"] =
-                                Json::Value(Json::objectValue);
+        Json::Value& stats = report["stats"] = Json::objectValue;
 
         stats["total_transactions"] = totalTxns;
         stats["meta_equal"] = metaEqual;
@@ -707,29 +739,26 @@ public:
             txJson["ledger_index"] = tl.beforeTx->getLedgerSeq();
 
             Json::Value&
-                deltasJson = error["account_state_deltas"]
-                    = Json::Value(Json::arrayValue);
+                deltasJson = error["account_state_deltas"] = Json::arrayValue;
 
             for(auto& pair: filteredDeltas)
             {
-                SLE::ref h (pair.second.first),
-                         r (pair.second.second);
 
-                Json::Value& delta = deltasJson.append (Json::objectValue);
-
-                delta["after_historical_tx"] = h ? h->getJson(0): "missing";
-                delta["after_replayed_tx"] = r ? r->getJson(0): "missing";
+                Json::Value& delta (deltasJson.append(Json::objectValue));
+                SLE::pointer o;
+                SLE::ref     h (pair.second.first),
+                             r (pair.second.second);
 
                 if (h != nullptr)
                 {
-                    SLE::pointer o (tl.beforeTx->getSLE(h->getIndex()));
-                    delta["before_tx"] = o ? o->getJson(0): "missing";
+                    o = (tl.beforeTx->getSLE(h->getIndex()));
                 }
                 if (r != nullptr)
                 {
-                    SLE::pointer o (tl.beforeTx->getSLE(r->getIndex()));
-                    delta["before_tx"] = o ? o->getJson(0): "missing";
+                    if (!o) o = (tl.beforeTx->getSLE(r->getIndex()));
                 }
+
+                delta_json(delta, o, h, r);
             }
 
             auto metaJson = [&](Json::Value& j, Blob& m) {
@@ -757,24 +786,25 @@ void processHistoricalTransactions()
     static std::string reportName ("replay-report.json");
 
     std::ofstream ofs (reportName, std::ofstream::out);
+    ofs << hr.report;
 
-    Json::StyledStreamWriter writer;
-    writer.write (ofs, hr.report);
+    // all those damn `.` per txn outputs
+    std::cout << std::endl << std::endl;
 
 // TODO: Clean this up, but for now just piggy backing on all this existing
 // reporting infrastucture, to compare the C++ expanded meta to that in the
 // history stream.
 #if REPLAY_TRANSACTIONS
-    std::cout << "Reprocessing transactions" << std::endl;
+    std::cout << "Finished reprocessing transactions" << std::endl;
 #else
-    std::cout << "Reprocessing meta" << std::endl;
+    std::cout << "Finshed reprocessing meta" << std::endl;
 #endif
 
     std::cout << ("\n\n"  "Wrote report to $CWD/") << reportName << std::endl;
     std::cout << "Reprocessing took ms: " << (beast::Time::getCurrentTime() - t)
                                               .inMilliseconds() << std::endl;
 
-    writer.write(std::cout, hr.report["stats"]);
+    std::cout << hr.report["stats"];
 }
 
 // } //  </namespace:ripple>
