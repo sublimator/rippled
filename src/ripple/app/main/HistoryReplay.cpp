@@ -778,7 +778,14 @@ void processHistoricalTransactions()
 {
     auto t = beast::Time::getCurrentTime();
 
-    HistoryLoader hl( &std::cin );
+    // Stop this soab from logging crap
+    LogSeverity const sv (Logs::fromString ("fatal"));
+    auto severity = Logs::toSeverity(sv);
+    deprecatedLogs().severity(severity);
+
+    std::ifstream history ("/home/nick/history.bin");
+
+    HistoryLoader hl( &history );
     HistoryReplayer hr (hl);
     hr.process();
     hr.prepareReport();
@@ -787,6 +794,7 @@ void processHistoricalTransactions()
 
     std::ofstream ofs (reportName, std::ofstream::out);
     ofs << hr.report;
+
 
     // all those damn `.` per txn outputs
     std::cout << std::endl << std::endl;
