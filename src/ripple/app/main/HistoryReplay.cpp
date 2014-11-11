@@ -545,6 +545,7 @@ class HistoryReplayer
 {
 public:
     std::map<uint256, TER> unapplied;
+    std::map<uint256, TER> discrepancies;
     std::map<TxType, int> errorsBytype;
     std::map<TxType, int> txnsByType;
 
@@ -634,6 +635,12 @@ public:
             TER result (engine.applyTransaction (*st,
                                                  tapNO_CHECK_SIGN,
                                                  applied));
+
+            // if (!engine.checkInvariants (result, *st, tapNO_CHECK_SIGN))
+            // {
+            //     discrepancies.insert(std::make_pair(txid, result));
+            // }
+
         #else
             bool applied = true;
             TER result = tesSUCCESS;
@@ -683,6 +690,8 @@ public:
         stats["state_effectively_equal"] = effectivelyEqual;
         stats["failed_transactions"] = failedTxns;
         stats["unapplied"] = static_cast<std::uint32_t>(unapplied.size());
+        stats["discrepancies"] =
+                    static_cast<std::uint32_t>(discrepancies.size());
 
         transactionTypeStats(stats, "errors_by_type", errorsBytype);
         transactionTypeStats(stats, "txns_by_type", txnsByType);
