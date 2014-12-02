@@ -414,11 +414,11 @@ struct TransactionLedgers {
 };
 
 
-SerializedTransaction::pointer transactionFromBlob(Blob& tx)
+STTx::pointer transactionFromBlob(Blob& tx)
 {
     Serializer serializer (tx);
     SerializerIterator sit (serializer);
-    return std::make_shared<SerializedTransaction> (sit);
+    return std::make_shared<STTx> (sit);
 }
 
 bool getMetaBlob(Ledger::ref ledger, uint256& txid,  Blob& meta)
@@ -627,7 +627,7 @@ public:
                     std::make_shared<Ledger> (
                         std::ref(*beforeTransactionApplied), true) );
 
-            SerializedTransaction::pointer st (transactionFromBlob(tx));
+            STTx::pointer st (transactionFromBlob(tx));
 
         #if REPLAY_TRANSACTIONS
             TransactionEngine engine (replayLedger);
@@ -701,7 +701,7 @@ public:
                   TransactionLedgers& tl,
                   uint256 txid,
                   std::uint32_t transactionIndex,
-                  SerializedTransaction& tx,
+                  STTx& tx,
                   Blob& meta,
                   Blob& reMeta)
     {
@@ -792,9 +792,9 @@ void processHistoricalTransactions()
     auto severity = Logs::toSeverity(sv);
     deprecatedLogs().severity(severity);
 
-    std::ifstream history ("/home/nick/history.bin");
+    // std::ifstream history ("/home/nick/history.bin");
 
-    HistoryLoader hl( &history );
+    HistoryLoader hl( &std::cin );
     HistoryReplayer hr (hl);
     hr.process();
     hr.prepareReport();

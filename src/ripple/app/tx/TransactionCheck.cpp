@@ -33,7 +33,7 @@ bool TransactionEngine::checkInvariants (TER result, const STTx& txn, Transactio
 
         LedgerEntryAction       leaAction;
 
-        uint256                 srcActId    = Ledger::getAccountRootIndex (txn.getFieldAccount (sfAccount));
+        uint256                 srcActId    = getAccountRootIndex (txn.getFieldAccount (sfAccount));
         SLE::pointer            origSrcAct  = mLedger->getSLE (srcActId);
         SLE::pointer            newSrcAct   = mNodes.getEntry (srcActId, leaAction);
 

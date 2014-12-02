@@ -9,15 +9,14 @@ typedef std::pair<SField::ptr, SLE::pointer> AffectedNode;
 uint256 offerOwnerDirectory(SLE::ref offer)
 {
     RippleAddress account (offer->getFieldAccount(sfAccount));
-    uint256 ownerDir (Ledger::getOwnerDirIndex(account.getAccountID()));
-    return Ledger::getDirNodeIndex(ownerDir,
-                                   offer->getFieldU64(sfOwnerNode));
+    uint256 ownerDir (getOwnerDirIndex(account.getAccountID()));
+    return getDirNodeIndex(ownerDir, offer->getFieldU64(sfOwnerNode));
 }
 
 uint256 offerBookDirectory(SLE::ref offer)
 {
     uint256 bookDir (offer->getFieldH256(sfBookDirectory));
-    return Ledger::getDirNodeIndex(bookDir, offer->getFieldU64(sfBookNode));
+    return getDirNodeIndex(bookDir, offer->getFieldU64(sfBookNode));
 }
 
 uint256 trustlineDirectory(SLE::ref line,
@@ -25,8 +24,8 @@ uint256 trustlineDirectory(SLE::ref line,
                            SField::ref nodeField)
 {
     Account account (line->getFieldAmount(limitField).issue().account);
-    uint256 ownerDir (Ledger::getOwnerDirIndex(account));
-    return Ledger::getDirNodeIndex(ownerDir, line->getFieldU64(nodeField));
+    uint256 ownerDir (getOwnerDirIndex(account));
+    return getDirNodeIndex(ownerDir, line->getFieldU64(nodeField));
 }
 
 std::vector<uint256> offerDirectoryIndexes(SLE::ref offer)
