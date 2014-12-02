@@ -64,7 +64,7 @@ public:
 
     bool readUInt32(std::uint32_t& out)
     {
-        char a[4];
+        unsigned char a[4];
         bool ret = readBytesTo(a, 4);
         if(ret) out = a[0] >> 24 | a[1] >> 16 | a[2] >> 8 | a[3];
         return ret;
