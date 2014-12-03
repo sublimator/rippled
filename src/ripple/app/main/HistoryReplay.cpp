@@ -46,17 +46,13 @@ class StreamReader
 {
 public:
     // This could be &std::cin or &std::ifstream
-    std::istream* istream_;
-    std::istream& stream()
-    {
-        return *istream_;
-    }
+    std::istream& istream_;
 
-    StreamReader (std::istream* stream) : istream_(stream) {}
+    StreamReader (std::istream& stream) : istream_(stream) {}
 
     bool readSize8(size_t& out)
     {
-        unsigned char a;
+        std::uint8_t a;
         bool ret = readBytesTo(&a, 1);
         if(ret) out = a;
         return ret;
@@ -64,25 +60,25 @@ public:
 
     bool readUInt32(std::uint32_t& out)
     {
-        unsigned char a[4];
+        std::uint8_t a[4];
         bool ret = readBytesTo(a, 4);
-        if(ret) out = a[0] >> 24 | a[1] >> 16 | a[2] >> 8 | a[3];
+        if(ret) out = a[0] << 24 | a[1] << 16 | a[2] << 8 | a[3];
         return ret;
     }
 
     bool readHash256(uint256& index)
     {
-        return readBytesTo(index.begin(), 32);
+        return readBytesTo(index.begin(), sizeof (uint256));
     }
 
     template<typename T>
     bool readBytesTo(T to, size_t n) {
-        return static_cast<bool> (stream().read((char*) to,  n));
+        return istream_.read(reinterpret_cast<char*>(to),  n).good();
     }
 
     bool eof()
     {
-        return stream().eof();
+        return istream_.eof();
     }
 
     bool readVlLength(size_t& result)
@@ -126,7 +122,7 @@ public:
     {
         static size_t headerSize (118);
         header = Blob(headerSize);
-        return readBytesTo(&header[0], headerSize);
+        return readBytesTo(header.data(), headerSize);
     }
 
     bool readVlObject(Blob& object)
@@ -134,7 +130,7 @@ public:
         size_t vl;
         if (!readVlLength(vl)) return false;
         object = Blob(vl);
-        return readBytesTo(&object[0], vl);
+        return readBytesTo(object.data(), vl);
     }
 
     bool readIndexedVlObject(uint256& index, Blob& object)
@@ -215,7 +211,7 @@ void transactionTypeStats (Json::Value& json,
 class HistoryLoader : public StreamReader
 {
 public:
-    HistoryLoader (std::istream* stream) : StreamReader(stream) {}
+    HistoryLoader (std::istream& stream) : StreamReader(stream) {}
 
     struct Frame
     {
@@ -289,7 +285,7 @@ public:
 
     bool loadAccountStateDelta(SHAMap::ref accountState)
     {
-        #define aborting(a) if (!(a)) {return false;}
+        #define aborting(a) if (!(a)) {assert(false); return false;}
 
         std::uint32_t modded, deleted, added;
 
@@ -344,7 +340,7 @@ public:
             return eof ();
         };
 
-        if (historicalState != nullptr)
+        if (historicalState)
         {
             snapShot = std::make_shared<Ledger> (
                 header, historicalState->snapShot(true));
@@ -421,19 +417,19 @@ STTx::pointer transactionFromBlob(Blob& tx)
     return std::make_shared<STTx> (sit);
 }
 
-bool getMetaBlob(Ledger::ref ledger, uint256& txid,  Blob& meta)
+bool getMetaBlob(Ledger::ref ledger, uint256& txid, Blob& meta)
 {
     auto item = ledger->peekTransactionMap()->peekItem (txid);
-    if (item == nullptr)
-    {
-        return false;
-    }
-    else
+    if (item)
     {
         SerializerIterator it (item->peekSerializer ());
         it.getVL (); // skip transaction
         meta = it.getVL();
         return true;
+    }
+    else
+    {
+        return false;
     }
 }
 
@@ -466,7 +462,8 @@ bool directoryDifferenceIsOnlyOrderOfIndexes(SLE::ref a, SLE::ref b)
     return indA == indB;
 }
 
-size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
+size_t findMeaningfulDeltas (SHAMap::Delta& deltas,
+                             SLEShaMapDelta& filteredDeltas) {
 
     for (auto&  pair : deltas) {
         auto& index = pair.first;
@@ -474,33 +471,29 @@ size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
 
         SHAMapItem::ref a = diff.first,
                         b = diff.second;
+
         SLE::pointer sle_a,
                      sle_b;
 
-        if (a != nullptr) {
+        if (a) {
             sle_a = (std::make_shared<SLE>(a->peekSerializer (),
                                            a->getTag()));
             if (sle_a ->getType() == ltLEDGER_HASHES) continue;
         }
 
-        if (b != nullptr) {
+        if (b) {
             sle_b = (std::make_shared<SLE>(b->peekSerializer (),
                                            b->getTag()));
             if (sle_b ->getType() == ltLEDGER_HASHES) continue;
         }
 
-        if(a != nullptr && b != nullptr)
+        if(a && b)
         {
             assert (a->getTag() == b->getTag());
-            bool equal = false;
 
-            if ((sle_a -> getType()) == ltDIR_NODE)
-            {
-                if (directoryDifferenceIsOnlyOrderOfIndexes(sle_a, sle_b))
-                {
-                    equal = true;
-                }
-            }
+            bool equal =
+                sle_a->getType() == ltDIR_NODE &&
+                directoryDifferenceIsOnlyOrderOfIndexes(sle_a, sle_b);
 
             if (!equal)
             {
@@ -515,31 +508,15 @@ size_t filterDeltas (SHAMap::Delta& deltas, SLEShaMapDelta& filteredDeltas) {
     return filteredDeltas.size();
 }
 
-
 void delta_json( Json::Value& delta,
-                 // before_tx
                  SLE::pointer o,
-                 // after_historical_tx
                  SLE::pointer h,
-                 // after_replayed_tx
                  SLE::pointer r)
 {
-    if (o)
-    {
-        delta["before_tx"] = o->getJson(0);
-    }
-
-    if (h)
-    {
-        delta["after_historical_tx"] = h->getJson(0);
-    }
-
-    if (r)
-    {
-        delta["after_replayed_tx"] = r->getJson(0);
-    }
+    if (o) delta["before_tx"] = o->getJson(0);
+    if (h) delta["after_historical_tx"] = h->getJson(0);
+    if (r) delta["after_replayed_tx"] = r->getJson(0);
 }
-
 
 class HistoryReplayer
 {
@@ -727,8 +704,7 @@ public:
             stateIsEqual = true;
             stateEqual++;
         }
-        else if (filterDeltas(deltas, filteredDeltas) == 0)
-        {
+        else if (findMeaningfulDeltas(deltas, filteredDeltas) == 0)  {
             stateIsEffectivelyEqual = true;
             effectivelyEqual++;
         }
@@ -758,14 +734,8 @@ public:
                 SLE::ref     h (pair.second.first),
                              r (pair.second.second);
 
-                if (h != nullptr)
-                {
-                    o = (tl.beforeTx->getSLE(h->getIndex()));
-                }
-                if (r != nullptr)
-                {
-                    if (!o) o = (tl.beforeTx->getSLE(r->getIndex()));
-                }
+                if (h)       o = (tl.beforeTx->getSLE(h->getIndex()));
+                if (r && !o) o = (tl.beforeTx->getSLE(r->getIndex()));
 
                 delta_json(delta, o, h, r);
             }
@@ -780,11 +750,12 @@ public:
 
             errorsReport[to_string(txid)] = error;
         }
-    }
+    };
 };
 
 void processHistoricalTransactions()
 {
+    // TODO:  use std::chrono
     auto t = beast::Time::getCurrentTime();
 
     // Stop this soab from logging crap
@@ -794,7 +765,7 @@ void processHistoricalTransactions()
 
     // std::ifstream history ("/home/nick/history.bin");
 
-    HistoryLoader hl( &std::cin );
+    HistoryLoader hl( std::cin );
     HistoryReplayer hr (hl);
     hr.process();
     hr.prepareReport();
@@ -803,7 +774,6 @@ void processHistoricalTransactions()
 
     std::ofstream ofs (reportName, std::ofstream::out);
     ofs << hr.report;
-
 
     // all those damn `.` per txn outputs
     std::cout << std::endl << std::endl;
@@ -823,5 +793,111 @@ void processHistoricalTransactions()
 
     std::cout << hr.report["stats"];
 }
+
+
+class StreamReader_test : public beast::unit_test::suite
+{
+public:
+
+    std::unique_ptr<std::istringstream> makeStream(std::string src)
+    {
+        std::string unhex;
+        strUnHex(unhex, src);
+        return std::make_unique<std::istringstream> (unhex);
+    }
+
+    void makeTest(std::string name,
+                  std::string hex,
+                  std::function<void (StreamReader&)> func)
+    {
+        testcase(name);
+        auto stream = makeStream (hex);
+        StreamReader r (*stream);
+        func(r);
+    }
+
+    void run()
+    {
+        std::map<
+            // test name
+            std::string,
+            std::pair<
+               // stream hex
+               std::string,
+               // test func
+               std::function<void (StreamReader&)>
+            >
+        >
+            tests
+        {
+            {"readSize8", {
+                "01050304",
+                [this](StreamReader& r) {
+                    std::size_t out (0);
+                    expect(r.readSize8(out));
+                    expect(out == 0x01);
+                    expect(r.readSize8(out));
+                    expect(out == 0x05);
+                    expect(r.readSize8(out));
+                    expect(out == 0x03);
+                    expect(r.readSize8(out));
+                    expect(out == 0x04);
+                }
+            }},
+            {"readUInt32", {
+                ("FFFFFFFF"
+                 "00000CCC"),
+                [this](StreamReader& r) {
+                    std::uint32_t out (0);
+                    expect(r.readUInt32(out));
+                    expect(out == 0xFFFFFFFFu);
+                    expect(r.readUInt32(out));
+                    expect(out == 0x00000CCCu);
+                }
+            }},
+            {"readVlLength", {
+                (
+                 "00"     //      0
+                 "01"     //      1
+                 "C0"     //    192
+                 "C100"   //    193
+                 "F0FE"   //  12479
+                 "F0FF"   //  12480
+                 "F10000" //  12481
+                 "FED416" // 918743
+                 "FED417" // 918744
+                ),
+                [this](StreamReader& r) {
+                    std::size_t out (0);
+
+                    expect(r.readVlLength(out));
+                    expect(out == 0);
+                    expect(r.readVlLength(out));
+                    expect(out == 1);
+                    expect(r.readVlLength(out));
+                    expect(out == 192);
+                    expect(r.readVlLength(out));
+                    expect(out == 193);
+                    expect(r.readVlLength(out));
+                    expect(out == 12479);
+                    expect(r.readVlLength(out));
+                    expect(out == 12480);
+                    expect(r.readVlLength(out));
+                    expect(out == 12481);
+                    expect(r.readVlLength(out));
+                    expect(out == 918743);
+                    expect(r.readVlLength(out));
+                    expect(out == 918744);
+                }
+            }}
+        };
+
+        for (auto& test : tests)
+            makeTest(test.first, test.second.first, test.second.second);
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(StreamReader,ripple_history,ripple);
+
 
 // } //  </namespace:ripple>
