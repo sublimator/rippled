@@ -125,7 +125,7 @@ public:
         return readBytesTo(header.data(), headerSize);
     }
 
-    bool readVlObject(Blob& object)
+    bool readVlBlob(Blob& object)
     {
         size_t vl;
         if (!readVlLength(vl)) return false;
@@ -133,13 +133,13 @@ public:
         return readBytesTo(object.data(), vl);
     }
 
-    bool readIndexedVlObject(uint256& index, Blob& object)
+    bool readIndexedVlBlob(uint256& index, Blob& object)
     {
         if (!readHash256(index))
         {
             return false;
         };
-        return readVlObject(object);
+        return readVlBlob(object);
     }
 
     bool readLedgerEntryIntoSHAMap(SHAMap::ref accountState, bool update)
@@ -147,7 +147,7 @@ public:
          uint256 index;
          Blob le;
 
-         if (!readIndexedVlObject(index, le))
+         if (!readIndexedVlBlob(index, le))
              return false;
 
         // Make an item out of the blob
@@ -254,14 +254,14 @@ public:
             uint256 index;
             Blob tx, meta;
 
-            if (!(ret = readIndexedVlObject(index, tx))) break;
-            if (!(ret = readVlObject(meta))) break;
+            if (!(ret = readIndexedVlBlob(index, tx))) break;
+            if (!(ret = readVlBlob(meta))) break;
 
             // Ledger is immutable
             Ledger::pointer b4Tx = snapShot;
             snapShot = std::make_shared<Ledger> (std::ref(*b4Tx), true);
 
-            nextFrame(); // TODO
+            assert(nextFrame() == Frame::loadAccountStateDelta);
             loadAccountStateDelta(snapShot->peekAccountStateMap());
             snapShot->addTransaction(index, Serializer(tx), Serializer(meta));
             snapShot->setImmutable();
@@ -755,8 +755,7 @@ public:
 
 void processHistoricalTransactions()
 {
-    // TODO:  use std::chrono
-    auto t = beast::Time::getCurrentTime();
+    auto t0 = std::chrono::steady_clock::now();
 
     // Stop this soab from logging crap
     LogSeverity const sv (Logs::fromString ("fatal"));
@@ -787,9 +786,10 @@ void processHistoricalTransactions()
     std::cout << "Finshed reprocessing meta" << std::endl;
 #endif
 
+    std::chrono::duration<double, std::milli> ms =
+            std::chrono::steady_clock::now() - t0;
     std::cout << ("\n\n"  "Wrote report to $CWD/") << reportName << std::endl;
-    std::cout << "Reprocessing took ms: " << (beast::Time::getCurrentTime() - t)
-                                              .inMilliseconds() << std::endl;
+    std::cout << "Reprocessing took ms: " << ms.count() << std::endl;
 
     std::cout << hr.report["stats"];
 }
@@ -816,6 +816,13 @@ public:
         func(r);
     }
 
+    void parseObject(STObject& so, Blob& b)
+    {
+        Serializer s (b);
+        SerializerIterator it (s);
+        so.set(it);
+    }
+
     void run()
     {
         std::map<
@@ -830,7 +837,7 @@ public:
         >
             tests
         {
-            {"readSize8", {
+            {"test_readSize8", {
                 "01050304",
                 [this](StreamReader& r) {
                     std::size_t out (0);
@@ -844,7 +851,7 @@ public:
                     expect(out == 0x04);
                 }
             }},
-            {"readUInt32", {
+            {"test_readUInt32", {
                 ("FFFFFFFF"
                  "00000CCC"),
                 [this](StreamReader& r) {
@@ -855,7 +862,7 @@ public:
                     expect(out == 0x00000CCCu);
                 }
             }},
-            {"readVlLength", {
+            {"test_readVlLength", {
                 (
                  "00"     //      0
                  "01"     //      1
@@ -888,6 +895,26 @@ public:
                     expect(out == 918743);
                     expect(r.readVlLength(out));
                     expect(out == 918744);
+                }
+            }},
+            {"test_readIndexedVlObject", {
+                (
+                 // hash 256 == 1
+                 "0000000000000000000000000000000000000000000000000000000000000001"
+                 "21" // vl length
+                 "59" // sfAccountTxnID
+                 // hash 256 == 2
+                 "0000000000000000000000000000000000000000000000000000000000000002"
+                ),
+                [this](StreamReader& r) {
+                    Blob b;
+                    uint256 index;
+
+                    r.readIndexedVlBlob(index, b);
+                    expect(index == 1);
+                    STObject so;
+                    parseObject(so, b);
+                    expect(so.getFieldH256(sfAccountTxnID) == 2);
                 }
             }}
         };

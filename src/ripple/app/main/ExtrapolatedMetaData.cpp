@@ -157,6 +157,9 @@ public:
         }
     }
 
+    // TODO: We actually need to walk NextIndex PrevIndex as the
+    // LowNode/BookNode etc fields are only hints.
+    // TODO: Investigate using the LedgerEntryView to do this dirty work.
     void unstableRemoveFromIndexes(const uint256& dirNodeIndex,
                                    const uint256& index)
     {
