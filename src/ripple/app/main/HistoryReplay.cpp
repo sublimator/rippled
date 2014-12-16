@@ -509,13 +509,56 @@ size_t findMeaningfulDeltas (SHAMap::Delta& deltas,
 }
 
 void delta_json( Json::Value& delta,
-                 SLE::pointer o,
-                 SLE::pointer h,
-                 SLE::pointer r)
+                 SLE::ref o,
+                 SLE::ref h,
+                 SLE::ref r)
 {
     if (o) delta["before_tx"] = o->getJson(0);
     if (h) delta["after_historical_tx"] = h->getJson(0);
     if (r) delta["after_replayed_tx"] = r->getJson(0);
+
+    // Get ALL the fields mentioned in both historical and replay versions of
+    // the entry
+    std::set<SField::ptr> fields;
+    for(auto& st : *h) fields.insert(&st.getFName());
+    for(auto& st : *r) fields.insert(&st.getFName());
+
+    auto& diff = delta["diff"] = Json::objectValue;
+
+    for (SField::ptr f : fields)
+    {
+        SField::ref field (*f);
+        // Get the index of the field in the ledger entries
+        int hfi = h->getFieldIndex(field);
+        int rfi = r->getFieldIndex(field);
+
+        if (hfi != -1 && rfi != -1)
+        {
+            // If they are exactly the same, there's nothing more to see here.
+            if (r->hasMatchingEntry(h->peekAtIndex(hfi)))
+            {
+                continue;
+            }
+            else
+            {
+                auto& array = diff[field.getName()] = Json::arrayValue;
+                array.append(h->peekAtIndex(hfi).getJson(0));
+                array.append(r->peekAtIndex(rfi).getJson(0));
+            }
+        }
+        else if (hfi != -1)
+        {
+            auto& array = diff[field.getName()] = Json::arrayValue;
+            array.append(h->peekAtIndex(hfi).getJson(0));
+            array.append(Json::nullValue);
+        }
+        else if (rfi != -1)
+        {
+            auto& array = diff[field.getName()] = Json::arrayValue;
+            array.append(Json::nullValue);
+            array.append(r->peekAtIndex(rfi).getJson(0));
+        }
+    }
 }
 
 class HistoryReplayer
