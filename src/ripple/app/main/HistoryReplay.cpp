@@ -261,7 +261,8 @@ public:
             Ledger::pointer b4Tx = snapShot;
             snapShot = std::make_shared<Ledger> (std::ref(*b4Tx), true);
 
-            assert(nextFrame() == Frame::loadAccountStateDelta);
+            nextFrame();
+            assert(frame == Frame::loadAccountStateDelta);
             loadAccountStateDelta(snapShot->peekAccountStateMap());
             snapShot->addTransaction(index, Serializer(tx), Serializer(meta));
             snapShot->setImmutable();
@@ -517,6 +518,12 @@ void delta_json( Json::Value& delta,
     if (h) delta["after_historical_tx"] = h->getJson(0);
     if (r) delta["after_replayed_tx"] = r->getJson(0);
 
+    
+    if (!(h && r))
+    {
+        return;
+    }
+    
     // Get ALL the fields mentioned in both historical and replay versions of
     // the entry
     std::set<SField::ptr> fields;
@@ -805,9 +812,9 @@ void processHistoricalTransactions()
     auto severity = Logs::toSeverity(sv);
     deprecatedLogs().severity(severity);
 
-    // std::ifstream history ("/home/nick/history.bin");
+    std::ifstream history ("/home/nick/ripple-lib-java/ripple-lib-java/history-6230000-6240000.bin");
 
-    HistoryLoader hl( std::cin );
+    HistoryLoader hl( history );
     HistoryReplayer hr (hl);
     hr.process();
     hr.prepareReport();

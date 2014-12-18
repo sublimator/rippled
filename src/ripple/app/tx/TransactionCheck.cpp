@@ -40,7 +40,7 @@ bool TransactionEngine::checkInvariants (TER result, const STTx& txn, Transactio
         if (!newSrcAct || !origSrcAct)
         {
             WriteLog (lsFATAL, TransactionEngine) << "Transaction created or destroyed its issuing account";
-            assert (false);
+            // assert (false);
             return false;
         }
 
@@ -50,7 +50,7 @@ bool TransactionEngine::checkInvariants (TER result, const STTx& txn, Transactio
             WriteLog (lsFATAL, TransactionEngine) << "Transaction mangles sequence numbers";
             WriteLog (lsFATAL, TransactionEngine) << "t:" << txnSeq << " o: " << origSrcAct->getFieldU32 (sfSequence)
                                                   << " n: " << newSrcAct->getFieldU32 (sfSequence);
-            assert (false);
+            // assert (false);
             return false;
         }
 
@@ -87,7 +87,7 @@ bool TransactionEngine::checkInvariants (TER result, const STTx& txn, Transactio
                             entry.mEntry->getFieldAmount (sfHighLimit).getIssuer ())
                     {
                         WriteLog (lsFATAL, TransactionEngine) << "Ripple line to self";
-                        assert (false);
+                        // assert (false);
                         return false;
                     }
                 }
@@ -99,8 +99,8 @@ bool TransactionEngine::checkInvariants (TER result, const STTx& txn, Transactio
 
         if (xrpChange != 0)
         {
-            WriteLog (lsFATAL, TransactionEngine) << "Transaction creates/destroys XRP";
-            assert (false);
+            WriteLog (lsFATAL, TransactionEngine) << "Transaction creates/destroys XRP: " << xrpChange ;
+            // assert (false);
             return false;
         }
 
