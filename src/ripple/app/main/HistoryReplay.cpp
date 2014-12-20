@@ -270,7 +270,7 @@ public:
             onTransaction(b4Tx, snapShot, index, transactionIndex, tx, meta);
             transactionIndex++;
         }
-        return true;
+        return ret;
     }
 
     bool readAccountState()
@@ -518,12 +518,12 @@ void delta_json( Json::Value& delta,
     if (h) delta["after_historical_tx"] = h->getJson(0);
     if (r) delta["after_replayed_tx"] = r->getJson(0);
 
-    
+
     if (!(h && r))
     {
         return;
     }
-    
+
     // Get ALL the fields mentioned in both historical and replay versions of
     // the entry
     std::set<SField::ptr> fields;
@@ -649,6 +649,12 @@ public:
                       Blob& meta )
         {
 
+            /*if (!(beforeTransactionApplied->getLedgerSeq() == 6236275 &&
+                  transactionIndex == 0))
+            {
+                return;
+            }*/
+
             // Create a snaphot of the ledger
             Ledger::pointer replayLedger (
                     std::make_shared<Ledger> (
@@ -662,6 +668,9 @@ public:
             TER result (engine.applyTransaction (*st,
                                                  tapNO_CHECK_SIGN,
                                                  applied));
+
+            // We can't move this into our own class, as the LES is deleted
+            // by the time we get here.
 
             // if (!engine.checkInvariants (result, *st, tapNO_CHECK_SIGN))
             // {
@@ -680,9 +689,11 @@ public:
         #endif
 
             replayLedger->setImmutable();
+            totalTxns++;
+            txnsByType[st->getTxnType()]++;
+
             if (applied)
             {
-                totalTxns++;
             #if REPLAY_TRANSACTIONS
                 Blob reMeta;
                 getMetaBlob(replayLedger, txid, reMeta);
@@ -699,6 +710,8 @@ public:
             }
             else
             {
+                failedTxns++;
+                errorsBytype[st->getTxnType()]++;
                 unapplied.insert(std::make_pair(txid, result));
             }
 
@@ -734,7 +747,6 @@ public:
     {
 
         std::cout << ".";
-        txnsByType[tx.getTxnType()]++;
 
         SHAMap::Delta deltas;
         tl.resultDelta(deltas);
