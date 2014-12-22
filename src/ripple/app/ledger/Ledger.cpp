@@ -29,6 +29,10 @@
 #include <ripple/protocol/HashPrefix.h>
 #include <beast/unit_test/suite.h>
 
+// Added
+#include <ripple/protocol/STParsedJSON.h>
+#include <fstream>
+
 namespace ripple {
 
 Ledger::Ledger (RippleAddress const& masterID, std::uint64_t startAmount)
@@ -1897,6 +1901,350 @@ std::vector<uint256> Ledger::getNeededAccountStateHashes (
 
     return ret;
 }
+
+//------------------------------------------------------------------------------
+
+
+
+//------------------------------------------------------------------------------
+
+class LedgerTransactions_test : public beast::unit_test::suite
+{
+
+    /*
+    * Load a Json::Value from a fixture.
+    */
+    bool loadFixtureJSON(Json::Value& json,
+                         std::string fixtureFile
+                     /*, beast::Journal& log*/) {
+        const char* path = std::getenv("TEST_FIXTURES");
+
+        if (path == nullptr)
+        {
+            log << "TEST_FIXTURES environment var not declared";
+            return false;
+        }
+        else
+        {
+            Json::Reader reader;
+            std::string fullPath = std::string(path) +"/"+ fixtureFile;
+            std::ifstream instream (fullPath, std::ios::in);
+            return reader.parse (instream, json, false);
+        }
+    }
+
+    /*
+    * TODO: This was stolen from the huge long function in Application.cpp
+    *       Tdeally, that would be sensibly decomposed into reusable functions
+    *       and could be used here.
+    */
+    Ledger::pointer parseLedgerFromJSON(Json::Value& jLedger) {
+        std::reference_wrapper<Json::Value> ledger (jLedger);
+
+        // accept a wrapped ledger
+        if (ledger.get().isMember  ("result"))
+            ledger = ledger.get()["result"];
+        if (ledger.get().isMember ("ledger"))
+            ledger = ledger.get()["ledger"];
+
+        std::uint32_t seq = 1;
+        std::uint32_t closeTime = getApp().getOPs().getCloseTimeNC ();
+        std::uint32_t closeTimeResolution = 30;
+        bool closeTimeEstimated = false;
+        std::uint64_t totalCoins = 0;
+
+        Ledger::pointer loadLedger;
+
+        if (ledger.get().isMember (jss::accountState))
+        {
+             if (ledger.get().isMember (jss::ledger_index))
+             {
+                 seq = ledger.get()[jss::ledger_index].asUInt();
+             }
+             if (ledger.get().isMember (jss::close_time))
+             {
+                 closeTime = ledger.get()[jss::close_time].asUInt();
+             }
+             if (ledger.get().isMember (jss::close_time_resolution))
+             {
+                 closeTimeResolution =
+                     ledger.get()[jss::close_time_resolution].asUInt();
+             }
+             if (ledger.get().isMember (jss::close_time_estimated))
+             {
+                 closeTimeEstimated =
+                     ledger.get()[jss::close_time_estimated].asBool();
+             }
+             if (ledger.get().isMember (jss::total_coins))
+             {
+                 totalCoins =
+                   beast::lexicalCastThrow<std::uint64_t>
+                       (ledger.get()[jss::total_coins].asString());
+             }
+            ledger = ledger.get()[jss::accountState];
+        }
+        if (!ledger.get().isArray ())
+        {
+            log << "State nodes must be an array";
+        }
+        else
+        {
+            loadLedger = std::make_shared<Ledger> (seq, closeTime);
+            loadLedger->setTotalCoins(totalCoins);
+
+            for (Json::UInt index = 0; index < ledger.get().size(); ++index)
+            {
+                Json::Value& entry = ledger.get()[index];
+
+                uint256 uIndex;
+                uIndex.SetHex (entry["index"].asString());
+                entry.removeMember ("index");
+
+                STParsedJSONObject stp ("sle", ledger.get()[index]);
+
+                if (stp.object && (uIndex.isNonZero()))
+                {
+                    STLedgerEntry sle (*stp.object, uIndex);
+                    bool ok = loadLedger->addSLE (sle);
+                    if (!ok)
+                        log << "Couldn't add serialized ledger: "
+                                                << uIndex;
+                }
+                else
+                {
+                    log << "Invalid entry in ledger";
+                }
+            }
+            loadLedger->setClosed ();
+            loadLedger->setAccepted (closeTime,
+                closeTimeResolution, !closeTimeEstimated);
+
+            return loadLedger;
+        }
+
+        return nullptr;
+    }
+
+    bool parseJSONString (std::string const& json, Json::Value& to)
+    {
+        Json::Reader reader;
+        return (reader.parse(json, to) && !to.isNull() && to.isObject());
+    }
+
+    typedef std::function<void (
+                               // Ledger before
+                               Ledger::ref,
+                               // Ledger after
+                               Ledger::ref,
+                               // Parsed transaction
+                               STTx& txn,
+                               // Did it apply
+                               bool,
+                               // Transaction EngineResult
+                               TER,
+                               // Resultant meta
+                               LedgerEntrySet&,
+                               TransactionMetaSet::pointer)> OnTransaction;
+
+    void applyTransaction( std::string& txString,
+                           std::string& ledgerFile,
+                           OnTransaction func )
+    {
+
+        // Parse the transaction json string
+        Json::Value tx_json;
+        expect(parseJSONString(txString, tx_json),
+              "failed to parse json string from: " + txString);
+
+        STParsedJSONObject parsed ("", tx_json);
+        expect(parsed.object != nullptr,
+            "failed to parse STObject from Json::Value: " + to_string(tx_json));
+
+        STTx tx {*parsed.object};
+
+        if (ledgerFile == "")
+        {
+            ledgerFile = "ledger-for-txn-" +
+                                to_string(tx.getTransactionID()) +
+                                    ".json";
+        }
+
+        // Load the ledger from the fixture
+        Json::Value ledger (Json::objectValue);
+        expect(loadFixtureJSON(ledger, ledgerFile),
+                "failed to load Json::Value from ledger fixture: " + ledgerFile);
+
+        Ledger::pointer closed = parseLedgerFromJSON(ledger);
+        expect(closed != nullptr,
+              "failed to create a Ledger from Json::Value from " + ledgerFile);
+
+        // Ensure the ledger loader properly,
+        // TODO: assert in the parseLedgerFromJSON function.
+        std::string actualAccountHash (
+            to_string(closed->peekAccountStateMap ()->getHash ()));
+        expect(ledger["account_hash"] == actualAccountHash,
+               "account state hash differs from dump");
+
+        // Create the open ledger
+        Ledger::pointer openLedger =
+            std::make_shared<Ledger> (false, std::ref (*closed));
+
+        // Wed don't want to actually reset the LedgerEntrySet after executing
+        // the transaction so we pass tapNO_RESET (a new flag)
+        auto params = tapNO_RESET | tapNO_CHECK_SIGN;
+        TransactionEngine engine(openLedger);
+
+        bool didApply = false;
+        auto r = engine.applyTransaction(tx, params, didApply);
+
+        // The meta won't be available if the transaction didn't apply
+        TransactionMetaSet::pointer meta;
+        if (didApply)
+        {
+            openLedger->getTransactionMeta(tx.getTransactionID(), meta);
+        }
+
+        // All gear we want in each transaction
+        func(closed, openLedger, tx, didApply, r, engine.view(), meta);
+    }
+
+    void applyTransaction( std::string& txString,
+                           OnTransaction func )
+    {
+        std::string ledgerFile = "";
+        applyTransaction(txString, ledgerFile, func);
+    }
+
+    void testPaymentHasNoDiscrepancy ()
+    {
+        std::string tx (R"({
+            "hash" : "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
+
+            "Account": "r9hEDb4xBGRfBCcX3E4FirDWQBAYtpxC8K",
+            "Amount": {
+              "currency": "BTC",
+              "issuer": "r9hEDb4xBGRfBCcX3E4FirDWQBAYtpxC8K",
+              "value": "20"
+            },
+            "Destination": "r9hEDb4xBGRfBCcX3E4FirDWQBAYtpxC8K",
+            "Fee": "12",
+            "Flags": 0,
+            "Paths": [
+              [
+                {
+                  "currency": "BTC",
+                  "issuer": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B"
+                },
+                {
+                  "account": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B"
+                }
+              ],
+              [
+                {
+                  "currency": "BTC",
+                  "issuer": "ra9eZxMbJrUcgV8ui7aPc161FgrqWScQxV"
+                },
+                {
+                  "account": "ra9eZxMbJrUcgV8ui7aPc161FgrqWScQxV"
+                }
+              ],
+              [
+                {
+                  "currency": "BTC",
+                  "issuer": "rJHygWcTLVpSXkowott6kzgZU6viQSVYM1"
+                },
+                {
+                  "account": "rJHygWcTLVpSXkowott6kzgZU6viQSVYM1"
+                }
+              ]
+            ],
+            "SendMax": "1660340193217",
+            "Sequence": 2113,
+            "SigningPubKey": "03CEB1BE2B8E444847DC13415378325666BF2F63A0549B3F9D844E7C73F8564E2E",
+            "TransactionType": "Payment",
+            "TxnSignature": "30450220373EBC6E46C3A403F79338F0F9E8C3FE28CEA4BC63E78D7A8365366C501DD5F2022100FC4BC4C610A6739A221A9538FD0FB50A9184443FC68A4F3F34D546DB2BD7013A"
+        })");
+
+        // looks for a ledger dump at = "ledger-for-txn-$hash.json";
+        applyTransaction(tx, [this](
+                             Ledger::ref lastClosed,
+                             Ledger::ref txApplied,
+                             STTx& tx,
+                             bool didApply,
+                             TER ter,
+                             // used new tapNO_RESET flag
+                             LedgerEntrySet& view,
+                             TransactionMetaSet::pointer meta
+                             ) {
+
+            std::string hash (to_string(tx.getTransactionID()));
+            expect(hash == "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
+                  "transaction hash unexpected, serdes fail?");
+
+            expect(didApply, "transaction didn't apply");
+            expect(ter == tesSUCCESS);
+
+            expectNoXRPDiscrepancy(tx, lastClosed, view);
+        });
+    }
+
+    void expectNoXRPDiscrepancy (STTx& tx,
+                                 Ledger::ref beforeTx,
+                                 LedgerEntrySet& view)
+    {
+        std::stringstream ss;
+        std::int64_t discrepancy (xrpDiscrepancy(tx, beforeTx, view));
+        ss << "Expected xrpChange after Fee to be 0 but was " << discrepancy;
+        expect(discrepancy == 0, ss.str());
+    }
+
+    std::int64_t xrpDiscrepancy (STTx& tx,
+                                 Ledger::ref beforeTx,
+                                 LedgerEntrySet& view)
+    {
+        std::int64_t xrpChange = tx.getFieldAmount (sfFee).getSNValue ();
+
+        for (auto& it : view)
+        {
+            auto& entry = it.second;
+
+            if (entry.mAction == taaMODIFY)
+            {
+                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
+                {
+                    xrpChange += entry.mEntry
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                    xrpChange -= beforeTx
+                                    ->getSLE (it.first)
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                }
+            }
+            else if (entry.mAction == taaCREATE)
+            {
+                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
+                {
+                    xrpChange += entry.mEntry
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                }
+            }
+        }
+        return xrpChange;
+    }
+
+public:
+    void run ()
+    {
+        if (std::getenv("TEST_FIXTURES"))
+        {
+            testPaymentHasNoDiscrepancy();
+        }
+        else {
+            fail("TEST_FIXTURES path not set to abspath($REPO/test/fixtures)");
+        }
+    }
+};
+
+BEAST_DEFINE_TESTSUITE_MANUAL(LedgerTransactions,ripple_app,ripple);
 
 //------------------------------------------------------------------------------
 

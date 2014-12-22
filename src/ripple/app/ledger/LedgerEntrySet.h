@@ -40,6 +40,9 @@ enum TransactionEngineParams
 
     // Transaction came from a privileged source
     tapADMIN            = 0x400,
+
+    // Don't clear the transaction account or LedgerEntrySet after application
+    tapNO_RESET         = 0x800,
 };
 
 enum LedgerEntryAction
