@@ -1904,19 +1904,96 @@ std::vector<uint256> Ledger::getNeededAccountStateHashes (
 
 //------------------------------------------------------------------------------
 
+namespace niqHaq {
+    inline void format(std::string & ss, const char * s)
+    {
+        while (s && *s)
+        {
+            if (*s == '%' && *(s+1) == 's') {
+                ss += "<missing arg>";
+                s++;
+            }
+            else {
+                ss += *s;
+            }
+            s++;
+        }
+    }
 
+    template<typename T, typename... Args>
+    void format(std::string & ss, const char * s, T value, Args&&... args)
+    {
+        while (s && *s)
+        {
+            if (*s == '%' && *(s+1) == 's')
+            {
+                s++;
+                ss += to_string(value);
+                return format(ss, ++s, std::forward<Args>(args)...);
+            }
+
+            ss += *s++;
+        }
+        ss += " <too many args>";
+    }
+
+    template<typename... Args>
+    std::string format(std::string fmt, Args&&... args)
+    {
+        std::string ss;
+        format(ss, fmt.c_str(), std::forward<Args>(args)...);
+        return ss;
+    }
+}
 
 //------------------------------------------------------------------------------
 
 class LedgerTransactions_test : public beast::unit_test::suite
 {
 
+    typedef std::function<void (
+                               // Ledger before
+                               Ledger::ref,
+                               // Ledger after
+                               Ledger::ref,
+                               // Parsed transaction
+                               STTx& txn,
+                               // Did it apply
+                               bool,
+                               // Transaction EngineResult
+                               TER,
+                               // Resultant meta
+                               LedgerEntrySet&,
+                               TransactionMetaSet::pointer)> OnTransaction;
+
+    template <typename... Args>
+    void
+    expectThat (bool shouldBeTrue, std::string fmt, Args&&... args)
+    {
+        if (shouldBeTrue)
+        {
+            pass();
+        }
+        else
+        {
+            fail(niqHaq::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+
+    template <typename T, typename T2>
+    void
+    expectEqual (const T2& actual, const T& expected, std::string derp="")
+    {
+        derp += ": (actual: %s, expected: %s)";
+        expectThat((actual == expected), derp, actual, expected);
+    }
+
     /*
     * Load a Json::Value from a fixture.
     */
-    bool loadFixtureJSON(Json::Value& json,
-                         std::string fixtureFile
-                     /*, beast::Journal& log*/) {
+    bool
+    loadFixtureJSON(Json::Value& json,
+                    std::string fixtureFile) {
         const char* path = std::getenv("TEST_FIXTURES");
 
         if (path == nullptr)
@@ -1938,7 +2015,8 @@ class LedgerTransactions_test : public beast::unit_test::suite
     *       Tdeally, that would be sensibly decomposed into reusable functions
     *       and could be used here.
     */
-    Ledger::pointer parseLedgerFromJSON(Json::Value& jLedger) {
+    Ledger::pointer
+    parseLedgerFromJSON(Json::Value& jLedger) {
         std::reference_wrapper<Json::Value> ledger (jLedger);
 
         // accept a wrapped ledger
@@ -2007,8 +2085,7 @@ class LedgerTransactions_test : public beast::unit_test::suite
                     STLedgerEntry sle (*stp.object, uIndex);
                     bool ok = loadLedger->addSLE (sle);
                     if (!ok)
-                        log << "Couldn't add serialized ledger: "
-                                                << uIndex;
+                        log << "Couldn't add SLE with index: " << uIndex;
                 }
                 else
                 {
@@ -2025,74 +2102,78 @@ class LedgerTransactions_test : public beast::unit_test::suite
         return nullptr;
     }
 
-    bool parseJSONString (std::string const& json, Json::Value& to)
+    bool
+    parseJSONString (std::string const& json, Json::Value& to)
     {
         Json::Reader reader;
         return (reader.parse(json, to) && !to.isNull() && to.isObject());
     }
 
-    typedef std::function<void (
-                               // Ledger before
-                               Ledger::ref,
-                               // Ledger after
-                               Ledger::ref,
-                               // Parsed transaction
-                               STTx& txn,
-                               // Did it apply
-                               bool,
-                               // Transaction EngineResult
-                               TER,
-                               // Resultant meta
-                               LedgerEntrySet&,
-                               TransactionMetaSet::pointer)> OnTransaction;
-
-    void applyTransaction( std::string& txString,
-                           std::string& ledgerFile,
-                           OnTransaction func )
+    STTx
+    loadTransaction(std::string& txString)
     {
 
         // Parse the transaction json string
         Json::Value tx_json;
-        expect(parseJSONString(txString, tx_json),
-              "failed to parse json string from: " + txString);
+        expectThat(parseJSONString(txString, tx_json),
+              "failed to parse json string from: %s", txString);
 
         STParsedJSONObject parsed ("", tx_json);
-        expect(parsed.object != nullptr,
-            "failed to parse STObject from Json::Value: " + to_string(tx_json));
+        expectThat(parsed.object != nullptr,
+                   "failed to parse STObject from Json::Value: %s", tx_json);
 
         STTx tx {*parsed.object};
+        return tx;
+    }
 
-        if (ledgerFile == "")
-        {
-            ledgerFile = "ledger-for-txn-" +
-                                to_string(tx.getTransactionID()) +
-                                    ".json";
-        }
-
+    void
+    loadLedger (std::string ledgerFile,
+                Ledger::pointer& closed,
+                Ledger::pointer& openLedger)
+    {
         // Load the ledger from the fixture
         Json::Value ledger (Json::objectValue);
-        expect(loadFixtureJSON(ledger, ledgerFile),
-                "failed to load Json::Value from ledger fixture: " + ledgerFile);
+        expectThat(loadFixtureJSON(ledger, ledgerFile),
+                  "failed to load Json::Value from ledger fixture: %s",
+                   ledgerFile);
 
-        Ledger::pointer closed = parseLedgerFromJSON(ledger);
-        expect(closed != nullptr,
-              "failed to create a Ledger from Json::Value from " + ledgerFile);
+        closed = parseLedgerFromJSON(ledger);
+        expectThat(closed != nullptr,
+                  "failed to create a Ledger from Json::Value from %s",
+                  ledgerFile);
 
         // Ensure the ledger loader properly,
         // TODO: assert in the parseLedgerFromJSON function.
         std::string actualAccountHash (
             to_string(closed->peekAccountStateMap ()->getHash ()));
-        expect(ledger["account_hash"] == actualAccountHash,
-               "account state hash differs from dump");
+        expectEqual(ledger["account_hash"],
+                    actualAccountHash,
+                   "account state hash differs from dumps");
 
         // Create the open ledger
-        Ledger::pointer openLedger =
-            std::make_shared<Ledger> (false, std::ref (*closed));
+        openLedger = std::make_shared<Ledger> (false, std::ref (*closed));
+    }
+
+    void
+    applyTransaction (std::string& txString,
+                      std::string& ledgerFile,
+                      OnTransaction func)
+    {
+
+        Ledger::pointer beforeTx, applyTo;
+        STTx tx = loadTransaction(txString);
+
+        std::string ledgerFixture = ( ledgerFile != "" ? ledgerFile :
+                                        "ledger-for-txn-" +
+                                            to_string(tx.getTransactionID()) +
+                                                ".json");
+
+        loadLedger(ledgerFixture, beforeTx, applyTo);
 
         // Wed don't want to actually reset the LedgerEntrySet after executing
         // the transaction so we pass tapNO_RESET (a new flag)
         auto params = tapNO_RESET | tapNO_CHECK_SIGN;
-        TransactionEngine engine(openLedger);
+        TransactionEngine engine(applyTo);
 
         bool didApply = false;
         auto r = engine.applyTransaction(tx, params, didApply);
@@ -2101,21 +2182,23 @@ class LedgerTransactions_test : public beast::unit_test::suite
         TransactionMetaSet::pointer meta;
         if (didApply)
         {
-            openLedger->getTransactionMeta(tx.getTransactionID(), meta);
+            applyTo->getTransactionMeta(tx.getTransactionID(), meta);
         }
 
         // All gear we want in each transaction
-        func(closed, openLedger, tx, didApply, r, engine.view(), meta);
+        func(beforeTx, applyTo, tx, didApply, r, engine.view(), meta);
     }
 
-    void applyTransaction( std::string& txString,
-                           OnTransaction func )
+    void
+    applyTransaction( std::string& txString,
+                      OnTransaction func )
     {
         std::string ledgerFile = "";
         applyTransaction(txString, ledgerFile, func);
     }
 
-    void testPaymentHasNoDiscrepancy ()
+    void
+    testPaymentHasNoDiscrepancy ()
     {
         std::string tx (R"({
             "hash" : "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
@@ -2178,29 +2261,31 @@ class LedgerTransactions_test : public beast::unit_test::suite
                              ) {
 
             std::string hash (to_string(tx.getTransactionID()));
-            expect(hash == "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
-                  "transaction hash unexpected, serdes fail?");
+            expectEqual(hash,
+             "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
+             "transaction hash unexpected, serdes fail?");
 
             expect(didApply, "transaction didn't apply");
-            expect(ter == tesSUCCESS);
+            expectThat(ter == tesSUCCESS, "transaction was not tesSUCCESS");
 
             expectNoXRPDiscrepancy(tx, lastClosed, view);
         });
     }
 
-    void expectNoXRPDiscrepancy (STTx& tx,
-                                 Ledger::ref beforeTx,
-                                 LedgerEntrySet& view)
+    void
+    expectNoXRPDiscrepancy (STTx& tx,
+                            Ledger::ref beforeTx,
+                            LedgerEntrySet& view)
     {
         std::stringstream ss;
         std::int64_t discrepancy (xrpDiscrepancy(tx, beforeTx, view));
-        ss << "Expected xrpChange after Fee to be 0 but was " << discrepancy;
-        expect(discrepancy == 0, ss.str());
+        expectEqual(discrepancy, 0, "accountState xrpChange after Fee");
     }
 
-    std::int64_t xrpDiscrepancy (STTx& tx,
-                                 Ledger::ref beforeTx,
-                                 LedgerEntrySet& view)
+    std::int64_t
+    xrpDiscrepancy (STTx& tx,
+                    Ledger::ref beforeTx,
+                    LedgerEntrySet& view)
     {
         std::int64_t xrpChange = tx.getFieldAmount (sfFee).getSNValue ();
 
