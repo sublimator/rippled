@@ -1948,9 +1948,9 @@ namespace niqHaq {
 
 //------------------------------------------------------------------------------
 
-class LedgerTransactions_test : public beast::unit_test::suite
+class LedgerTransactionSuite : public beast::unit_test::suite
 {
-
+public:
     typedef std::function<void (
                                // Ledger before
                                Ledger::ref,
@@ -1967,16 +1967,18 @@ class LedgerTransactions_test : public beast::unit_test::suite
                                TransactionMetaSet::pointer)> OnTransaction;
 
     template <typename... Args>
-    void
+    bool
     expectThat (bool shouldBeTrue, std::string fmt, Args&&... args)
     {
         if (shouldBeTrue)
         {
             pass();
+            return true;
         }
         else
         {
             fail(niqHaq::format(fmt, std::forward<Args>(args)...));
+            return false;
         }
     }
 
@@ -1986,6 +1988,14 @@ class LedgerTransactions_test : public beast::unit_test::suite
     {
         derp += ": (actual: %s, expected: %s)";
         expectThat((actual == expected), derp, actual, expected);
+    }
+
+    void
+    abortIfNot(bool cond) {
+        if (!cond)
+        {
+            throw std::runtime_error("test aborted, can't continue");
+        }
     }
 
     /*
@@ -2006,6 +2016,8 @@ class LedgerTransactions_test : public beast::unit_test::suite
             Json::Reader reader;
             std::string fullPath = std::string(path) +"/"+ fixtureFile;
             std::ifstream instream (fullPath, std::ios::in);
+            abortIfNot(
+                expectThat (instream.good(), "IO not good for %s", fullPath));
             return reader.parse (instream, json, false);
         }
     }
@@ -2123,6 +2135,15 @@ class LedgerTransactions_test : public beast::unit_test::suite
                    "failed to parse STObject from Json::Value: %s", tx_json);
 
         STTx tx {*parsed.object};
+
+        if (tx_json["hash"] != Json::nullValue)
+        {
+            std::string id (to_string(tx.getTransactionID()));
+            expectEqual(id,
+                        tx_json["hash"].asString(),
+                        "computed tx hash different than expected");
+        }
+
         return tx;
     }
 
@@ -2198,8 +2219,55 @@ class LedgerTransactions_test : public beast::unit_test::suite
     }
 
     void
+    expectNoXRPDiscrepancy (STTx& tx,
+                            Ledger::ref beforeTx,
+                            LedgerEntrySet& view)
+    {
+        std::stringstream ss;
+        std::int64_t discrepancy (xrpDiscrepancy(tx, beforeTx, view));
+        expectEqual(discrepancy, 0, "accountState xrpChange after Fee");
+    }
+
+    std::int64_t
+    xrpDiscrepancy (STTx& tx,
+                    Ledger::ref beforeTx,
+                    LedgerEntrySet& view)
+    {
+        std::int64_t xrpChange = tx.getFieldAmount (sfFee).getSNValue ();
+
+        for (auto& it : view)
+        {
+            auto& entry = it.second;
+
+            if (entry.mAction == taaMODIFY)
+            {
+                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
+                {
+                    xrpChange += entry.mEntry
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                    xrpChange -= beforeTx
+                                    ->getSLE (it.first)
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                }
+            }
+            else if (entry.mAction == taaCREATE)
+            {
+                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
+                {
+                    xrpChange += entry.mEntry
+                                    ->getFieldAmount (sfBalance).getSNValue ();
+                }
+            }
+        }
+        return xrpChange;
+    }
+};
+class PaymentDiscrepancy_test : public LedgerTransactionSuite
+{
+    void
     testPaymentHasNoDiscrepancy ()
     {
+        testcase ("testPaymentHasNoDiscrepancy");
         std::string tx (R"({
             "hash" : "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
 
@@ -2260,60 +2328,61 @@ class LedgerTransactions_test : public beast::unit_test::suite
                              TransactionMetaSet::pointer meta
                              ) {
 
-            std::string hash (to_string(tx.getTransactionID()));
-            expectEqual(hash,
-             "062E94FFCE80B08C0FACF6910E0CDC04377AEE64CB2CBEF63EE9A22A414A2A8A",
-             "transaction hash unexpected, serdes fail?");
-
             expect(didApply, "transaction didn't apply");
             expectThat(ter == tesSUCCESS, "transaction was not tesSUCCESS");
-
             expectNoXRPDiscrepancy(tx, lastClosed, view);
         });
     }
 
     void
-    expectNoXRPDiscrepancy (STTx& tx,
-                            Ledger::ref beforeTx,
-                            LedgerEntrySet& view)
+    testPaymentHasNoDiscrepancy2 ()
     {
-        std::stringstream ss;
-        std::int64_t discrepancy (xrpDiscrepancy(tx, beforeTx, view));
-        expectEqual(discrepancy, 0, "accountState xrpChange after Fee");
-    }
-
-    std::int64_t
-    xrpDiscrepancy (STTx& tx,
-                    Ledger::ref beforeTx,
-                    LedgerEntrySet& view)
-    {
-        std::int64_t xrpChange = tx.getFieldAmount (sfFee).getSNValue ();
-
-        for (auto& it : view)
-        {
-            auto& entry = it.second;
-
-            if (entry.mAction == taaMODIFY)
+        testcase ("testPaymentHasNoDiscrepancy2");
+        std::string tx (R"(
             {
-                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
-                {
-                    xrpChange += entry.mEntry
-                                    ->getFieldAmount (sfBalance).getSNValue ();
-                    xrpChange -= beforeTx
-                                    ->getSLE (it.first)
-                                    ->getFieldAmount (sfBalance).getSNValue ();
-                }
+                "Account": "rNFxMCoT4hRDVevjzkmnkxQvfVAS1epR7o",
+                "Amount": {
+                    "currency": "BTC",
+                    "issuer": "rMwjYedjc7qqtKYVLiAccJSmCwih4LnE2q",
+                    "value": "0.4"
+                },
+                "Destination": "rMwjYedjc7qqtKYVLiAccJSmCwih4LnE2q",
+                "DestinationTag": 1403334172,
+                "Fee": "12",
+                "Flags": 0,
+                "InvoiceID": "DB7912DAFEF71182620672FC1A47DA32042C986A823116610FD1127CECA25A60",
+                "Paths": [[{
+                    "currency": "BTC",
+                    "issuer": "rMwjYedjc7qqtKYVLiAccJSmCwih4LnE2q"
+                }]],
+                "SendMax": "34007143907",
+                "Sequence": 32,
+                "SigningPubKey": "02F4F6664770E654538E7432DA510FFA2BD04BD2E21CD5644C21D153987F5F4E22",
+                "TransactionType": "Payment",
+                "TxnSignature": "3045022100C0CAA3D192D217A92949011F8701525FE8830A1E746207E23D15C4C1D022FBDC02206FEF2FFD48114209BC0F10A4DFEF0D74621A3ED546029FA9DC6CFDEB689402C2",
+
+                "hash": "6E6E366E195B177EBA1EFE9D63AE8925A916CB8591C1A3E3B238523B8A6CFCBF"
             }
-            else if (entry.mAction == taaCREATE)
-            {
-                if (entry.mEntry->getType () == ltACCOUNT_ROOT)
-                {
-                    xrpChange += entry.mEntry
-                                    ->getFieldAmount (sfBalance).getSNValue ();
-                }
-            }
-        }
-        return xrpChange;
+        )");
+
+        // looks for a ledger dump at = "ledger-for-txn-$hash.json";
+        applyTransaction(tx, [this](
+                             Ledger::ref lastClosed,
+                             Ledger::ref txApplied,
+                             STTx& tx,
+                             bool didApply,
+                             TER ter,
+                             // used new tapNO_RESET flag
+                             LedgerEntrySet& view,
+                             TransactionMetaSet::pointer meta
+                             ) {
+
+            expect(didApply, "transaction didn't apply");
+            expectThat(ter == tesSUCCESS, "transaction result was: %s",
+                                           transToken(ter));
+
+            expectNoXRPDiscrepancy(tx, lastClosed, view);
+        });
     }
 
 public:
@@ -2321,7 +2390,12 @@ public:
     {
         if (std::getenv("TEST_FIXTURES"))
         {
+            LogSeverity const sv (Logs::fromString ("fatal"));
+            auto severity = Logs::toSeverity(sv);
+            deprecatedLogs().severity(severity);
+
             testPaymentHasNoDiscrepancy();
+            testPaymentHasNoDiscrepancy2();
         }
         else {
             fail("TEST_FIXTURES path not set to abspath($REPO/test/fixtures)");
@@ -2329,7 +2403,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE_MANUAL(LedgerTransactions,ripple_app,ripple);
+BEAST_DEFINE_TESTSUITE_MANUAL(PaymentDiscrepancy,ripple_app,ripple);
 
 //------------------------------------------------------------------------------
 
