@@ -278,11 +278,11 @@ test_alternatives_factory = (realias_pp, realias_text) ->
 
       tn = t_paths.length
       an = a.paths_computed.length
-      assert.equal tn, an, "Different number of paths specified for alternative[#{ti}]"+
-                            "\nexpected: #{prettyj t_paths}\n "+
-                            "actual(shorthand): #{prettyj create_shorthand actual}\n"+
+      assert.equal tn, an,  error_context() +
+                            "Different number of paths specified for alternative[#{ti}]\n"+
                             "actual(verbose): #{prettyj a.paths_computed}\n"+
-                            error_context()
+                            "expected: #{prettyj t_paths}\n"+
+                            "actual(shorthand): #{prettyj create_shorthand actual}\n"
 
       for p, i in t_paths
         matched = false
@@ -292,9 +292,9 @@ test_alternatives_factory = (realias_pp, realias_text) ->
             matched = true
             break
 
-        assert matched, "Can't find a match for path[#{i}]: #{prettyj p} "+
-                        "amongst #{prettyj create_shorthand [a]}"+
-                        error_context()
+        assert matched, error_context() +
+                        "Can't find a match for path[#{i}]: #{prettyj p} "+
+                        "amongst #{prettyj create_shorthand [a]}"
     return
 
 expand_source_currencies = (via) ->
@@ -326,12 +326,12 @@ create_path_test = (pth) ->
 
     error_info = (m, more) ->
       info =
-        path_expected:     pth,
-        path_find_updates: messages
         ledger: ledger.declaration
+        path_find_updates: messages
+        path_expected:     pth
 
       extend(info, more) if more?
-      ledger.pretty_json(info)
+      ledger.pretty_json(info) + "\n"
 
     assert Amount.from_json(pth.send).is_valid(),
            "#{pth.send} is not valid Amount"
@@ -388,15 +388,15 @@ create_path_test = (pth) ->
           test = pth.alternatives
 
           assert test.length == alts.length,
-                "Number of `alternatives` specified is different: "+
-                "#{error_info(m)}"
+                error_info(m) +
+                "Number of `alternatives` specified is different"
 
           if test.length == alts.length
             test_alternatives(pth.alternatives, alts, -> error_info(m))
 
         if pth.n_alternatives?
           assert pth.n_alternatives ==  m.alternatives.length,
-                 "fail (wrong n_alternatives): #{error_info(m)}"
+                 error_info(m) + "fail (wrong n_alternatives)"
 
         done()
 
