@@ -76,7 +76,6 @@ The tests are written in a declarative style:
 assert = simple_assert
 
 refute = (cond, msg) -> assert(!cond, msg)
-prettyj = pretty_json =  (v) -> JSON.stringify(v, undefined, 2)
 
 propagater = (done) ->
   (f) ->
@@ -276,13 +275,16 @@ test_alternatives_factory = (realias_pp, realias_text) ->
 
       t_paths = ensure_list(t.paths)
 
+      realias_pp
+
       tn = t_paths.length
       an = a.paths_computed.length
-      assert.equal tn, an,  error_context() +
-                            "Different number of paths specified for alternative[#{ti}]\n"+
-                            "actual(verbose): #{prettyj a.paths_computed}\n"+
-                            "expected: #{prettyj t_paths}\n"+
-                            "actual(shorthand): #{prettyj create_shorthand actual}\n"
+      assert.equal tn, an,
+        error_context() +
+        "Different number of paths specified for alternative[#{ti}]\n"+
+        "actual(verbose): #{realias_pp a.paths_computed}\n"+
+        "expected: #{realias_pp t_paths}\n"+
+        "actual(shorthand): #{realias_pp create_shorthand actual}\n"
 
       for p, i in t_paths
         matched = false
@@ -292,9 +294,10 @@ test_alternatives_factory = (realias_pp, realias_text) ->
             matched = true
             break
 
-        assert matched, error_context() +
-                        "Can't find a match for path[#{i}]: #{prettyj p} "+
-                        "amongst #{prettyj create_shorthand [a]}"
+        assert matched,
+               error_context() +
+               "Can't find a match for path[#{i}]: #{realias_pp p} "+
+               "amongst #{realias_pp create_shorthand [a]}"
     return
 
 expand_source_currencies = (via) ->
@@ -318,8 +321,9 @@ create_path_test = (pth) ->
     self    = this
     WHAT    = self.log_what
     ledger  = self.ledger
-    test_alternatives = test_alternatives_factory ledger.pretty_json.bind(ledger),
-                                                  ledger.realias_issuer
+    test_alternatives =
+      test_alternatives_factory ledger.pretty_json.bind(ledger),
+                                ledger.realias_issuer
 
     WHAT "#{pth.title}: #{pth.src} sending #{pth.dst}, "+
          "#{pth.send}, via #{pth.via}"
@@ -359,10 +363,9 @@ create_path_test = (pth) ->
       # ND: The story was I developed a shorthand notation as it helped to see
       # the possible paths, seeing everything in a condensed form, with aliases
       # instead of rBigZfkunAdresZeseck2aaaa0aapl, and the like. It turned out
-      # that rippled was over-specifying a lot of the information in the paths
-      # returned by the path finding commands, but by the time that was
-      # discovered a lot of the tests were written, so I wrote a routine to fill
-      # in the implied information.
+      # that rippled was over-specifying a lot of information in the responses,
+      # but the tests were already written, so I wrote a routine to fill in the
+      # implied information.2
       expand_alternative alt for alt in m.alternatives
 
       messages[if updates then "update-#{updates}" else 'initial-response'] = m
