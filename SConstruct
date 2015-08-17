@@ -15,11 +15,13 @@
 
     clang           All clang variants
     clang.debug     clang debug variant
+    clang.debug     clang coverage variant
     clang.release   clang release variant
     clang.profile   clang profile variant
 
     gcc             All gcc variants
     gcc.debug       gcc debug variant
+    gcc.debug       gcc coverage variant
     gcc.release     gcc release variant
     gcc.profile     gcc profile variant
 
@@ -250,6 +252,9 @@ def print_coms(target, source, env):
     # TODO Add 'PROTOCCOM' to this list and make it work
     Beast.print_coms(['CXXCOM', 'CCCOM', 'LINKCOM'], env)
 
+def is_debug_variant(variant):
+  return variant in ('debug', 'coverage')
+
 #-------------------------------------------------------------------------------
 
 # Set construction variables for the base environment
@@ -310,7 +315,7 @@ def config_base(env):
 
 # Set toolchain and variant specific construction variables
 def config_env(toolchain, variant, env):
-    if variant == 'debug':
+    if is_debug_variant(variant):
         env.Append(CPPDEFINES=['DEBUG', '_DEBUG'])
 
     elif variant == 'release' or variant == 'profile':
@@ -415,6 +420,12 @@ def config_env(toolchain, variant, env):
                 '-fno-strict-aliasing'
                 ])
 
+        if variant == 'coverage':
+             env.Append(CXXFLAGS=[
+                 '-fprofile-arcs', '-ftest-coverage'])
+             env.Append(LINKFLAGS=[
+                 '-fprofile-arcs', '-ftest-coverage'])
+
         if toolchain == 'clang':
             if Beast.system.osx:
                 env.Replace(CC='clang', CXX='clang++', LINK='clang++')
@@ -442,7 +453,7 @@ def config_env(toolchain, variant, env):
             # If we are in debug mode, use GCC-specific functionality to add
             # extra error checking into the code (e.g. std::vector will throw
             # for out-of-bounds conditions)
-            if variant == 'debug':
+            if is_debug_variant(variant):
                 env.Append(CPPDEFINES={
                     '_FORTIFY_SOURCE': 2
                     })
@@ -561,7 +572,7 @@ base.Decider('MD5-timestamp')
 set_implicit_cache()
 
 # Configure the toolchains, variants, default toolchain, and default target
-variants = ['debug', 'release', 'profile']
+variants = ['debug', 'coverage', 'release', 'profile']
 all_toolchains = ['clang', 'gcc', 'msvc']
 if Beast.system.osx:
     toolchains = ['clang']
@@ -683,7 +694,7 @@ def get_classic_sources(toolchain):
     append_sources(result, *list_sources('src/ripple/shamap', '.cpp'))
     append_sources(result, *list_sources('src/ripple/test', '.cpp'))
     append_sources(result, *list_sources('src/ripple/unl', '.cpp'))
-   
+
     append_sources(
         result,
         *list_sources('src/ripple/nodestore', '.cpp'),
