@@ -117,16 +117,16 @@ suite('Sending', function() {
         })
         .request();
       },
-      // Set negative limit.
-      function (callback) {
-        $.remote.transaction()
-        .ripple_line_set("alice", "-1/USD/mtgox")
-        .once('submitted', function (m) {
-          assert.strictEqual('temBAD_LIMIT', m.engine_result);
-          callback();
-        })
-        .submit();
-      },
+      // // Set negative limit.
+      // function (callback) {
+      //   $.remote.transaction()
+      //   .ripple_line_set("alice", "-1/USD/mtgox")
+      //   .once('submitted', function (m) {
+      //     assert.strictEqual('temBAD_LIMIT', m.engine_result);
+      //     callback();
+      //   })
+      //   .submit();
+      // },
 
       //          function (callback) {
       //            self.what = "Display ledger";
