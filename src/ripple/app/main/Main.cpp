@@ -211,6 +211,27 @@ static int runUnitTests(
     return EXIT_SUCCESS;
 }
 
+// TODO:HACK:
+#include "HistoryReplay.cpp"
+
+static
+int
+doProcessHistoricalTransactions ()
+{
+    auto config = std::make_unique<Config>();
+    setupConfigForUnitTests(*config);
+
+    auto app = make_Application (
+        std::move(config),
+        std::make_unique<Logs>());
+
+    processHistoricalTransactions(*app);
+    std::cerr << "OK! " << std::endl;
+
+    // TODO
+    return EXIT_SUCCESS;
+}
+
 //------------------------------------------------------------------------------
 
 int run (int argc, char** argv)
@@ -247,6 +268,7 @@ int run (int argc, char** argv)
     ("unittest,u", po::value <std::string> ()->implicit_value (""), "Perform unit tests.")
     ("unittest-arg", po::value <std::string> ()->implicit_value (""), "Supplies argument to unit tests.")
     ("parameters", po::value< vector<string> > (), "Specify comma separated parameters.")
+    ("process-history", "process-history, reading from stdin")
     ("quiet,q", "Reduce diagnotics.")
     ("quorum", po::value <int> (), "Set the validation quorum.")
     ("silent", "No output to the console after startup.")
@@ -310,6 +332,11 @@ int run (int argc, char** argv)
 
         return runUnitTests(
             vm["unittest"].as<std::string>(), argument);
+    }
+
+    if (vm.count ("process-history"))
+    {
+        return doProcessHistoricalTransactions();
     }
 
     auto config = std::make_unique<Config>();
