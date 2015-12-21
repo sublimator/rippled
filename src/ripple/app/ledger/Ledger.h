@@ -126,10 +126,17 @@ public:
         std::size_t size, bool hasPrefix,
             Config const& config, Family& family);
 
+    Ledger (
+        Blob& header,
+        std::shared_ptr<SHAMap> accountState,
+        Config const& config,
+        Family& family);
+
     // used for database ledgers
     Ledger (std::uint32_t ledgerSeq,
         NetClock::time_point closeTime, Config const& config,
             Family& family);
+
 
     ~Ledger();
 
