@@ -16,10 +16,10 @@ function makeSuite (name, ledger_state, tests) {
 
     // This runs only once
     suiteSetup(function (done) {
-      var opts = {};
-      if (ledger_state.dump) {
-        opts.ledger_file = ledger_state.dump;
-      }
+      var opts = {
+        ledger_file: Boolean(ledger_state.dump),
+        no_server: Boolean(ledger_state.no_server)
+      };
       testutils.build_setup(opts).call(context, function () {
         if (opts.ledger_file) {
           done();

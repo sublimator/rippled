@@ -36,14 +36,14 @@ TODO:
 
 
  // Number of simultaneous websocket connections to make path finding requests on
-var REMOTES = 1;
+var REMOTES = 50;
 var MAX_REQUESTS = 1000; // maximum path requests to try
 var CLOSE_LEDGERS = true; // every 2-4 seconds
-var RETRY_AFTER = 0; // retry after ms timeout without update. 0 for no retry
+var RETRY_AFTER = 1250; // retry after ms timeout without update. 0 for no retry
 var WAIT_FULL_REPLY = true;
 // 'close'|'dispose', close will path_find subcommand : close
 var DISPOSE_OR_CLOSE = 'dispose';
-var CONNECTION_DROP_FREQUENCY = 0; // 0 - 1.0
+var CONNECTION_DROP_FREQUENCY = 0.3; // 0 - 1.0
 var CONNECTION_DROP_AFTER = 50; // ms
 var CLOSE_FIRST = false;
 var LEDGER_DUMP = 'ledger-full-' + '1000' + '000.json';
@@ -216,6 +216,13 @@ makeSuite('path_find', {dump: LEDGER_DUMP, no_server: START_OWN_SERVER},
             if (!remote.reconnectHandle &&
                  Math.random() > (1 - CONNECTION_DROP_FREQUENCY)) {
               remote.reconnectHandle = setTimeout((() => {
+                setTimeout(() => {
+                  var pf = remote._cur_path_find;
+                  if (pf) {
+                    pf[DISPOSE_OR_CLOSE]();
+                  }
+                  request();
+                }, 100);
                 remote.reconnect();
                 remote.reconnectHandle = null;
               }), CONNECTION_DROP_AFTER);

@@ -130,6 +130,8 @@ function build_setup(opts, host) {
     opts.verbose_ws     = true;
     opts.verbose_server = true;
   }
+  
+  console.log('options', opts);
 
   function setup(done) {
     var self = this;
@@ -156,6 +158,7 @@ function build_setup(opts, host) {
         var server_config = get_server_config(config, host);
 
         if (opts.no_server || server_config.no_server)  {
+          console.log('wtf', opts);
           return callback();
         }
 
