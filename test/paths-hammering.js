@@ -11,6 +11,30 @@ var makeSuite = require('./declarative-suite').makeSuite;
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
+/*
+A "manual" test to connect to an already spawned server
+    rippled should be set up to log to /dev/null
+
+Connect [R] many remotes
+
+Request the account state:
+    Group account roots by Account
+    Find accounts that have positive balances
+    Find accounts that have positive balance potential (balance < limit)
+    Create path requests [reqs] as product of previous two sets LIMIT by [n]
+
+For each remote:
+    Claim a path request (pop from [reqs])
+    Drop connection with configurable [fuq]rency
+        upon reconnect, try to send path request again
+    Resend request if no response with configurable [impatience]
+
+TODO:
+  clean this mess up
+
+*/
+
+
  // Number of simultaneous websocket connections to make path finding requests on
 var REMOTES = 1;
 var MAX_REQUESTS = 1000; // maximum path requests to try
@@ -19,6 +43,11 @@ var RETRY_AFTER = 0; // retry after ms timeout without update. 0 for no retry
 var WAIT_FULL_REPLY = true;
 // 'close'|'dispose', close will path_find subcommand : close
 var DISPOSE_OR_CLOSE = 'dispose';
+var CONNECTION_DROP_FREQUENCY = 0; // 0 - 1.0
+var CONNECTION_DROP_AFTER = 50; // ms
+var CLOSE_FIRST = false;
+var LEDGER_DUMP = 'ledger-full-' + '1000' + '000.json';
+var START_OWN_SERVER = true;
 
 /* ----------------------------- MONKEY BUSINESS ---------------------------- */
 
@@ -163,7 +192,7 @@ function closeLedger(remote) {
   }, 2000 + (Math.random() * 2000))
 }
 
-makeSuite('path_find', {dump: 'ledger-full-' + '40' + '000.json'},
+makeSuite('path_find', {dump: LEDGER_DUMP, no_server: START_OWN_SERVER},
   {
     test1: function (remote, done) {
       this.timeout(0);
@@ -183,7 +212,18 @@ makeSuite('path_find', {dump: 'ledger-full-' + '40' + '000.json'},
               }
               return;
             }
-            var [src, dest, line, potentialBalanceAdj] = requests.pop();
+
+            if (!remote.reconnectHandle &&
+                 Math.random() > (1 - CONNECTION_DROP_FREQUENCY)) {
+              remote.reconnectHandle = setTimeout((() => {
+                remote.reconnect();
+                remote.reconnectHandle = null;
+              }), CONNECTION_DROP_AFTER);
+            }
+
+            var req = requests.pop();
+            var [src, dest, line, potentialBalanceAdj] = req;
+
             var options = {
               src_account: src,
               dst_account: dest,
@@ -199,8 +239,21 @@ makeSuite('path_find', {dump: 'ledger-full-' + '40' + '000.json'},
 
             function request() {
               // console.log({msg: 'request', options});
+
+              if (CLOSE_FIRST) {
+                remote.requestPathFindClose(() => {
+                  console.log({msg: 'close_first', remote: remote.remoteIndex});
+                });
+              }
+
               var pf = remote.path_find(options);
-              pf.on('error', (e) => done(new Error(prettyJSON(e))));
+              pf.on('error', (e) => {
+                // done(new Error(prettyJSON(e)));
+                requests.push(req);
+                outstanding--;
+                pf[DISPOSE_OR_CLOSE]()
+                doOne(remote);
+              });
               pf.on('update', (m) => {
                 if (WAIT_FULL_REPLY && !m.full_reply) {
                   return;
