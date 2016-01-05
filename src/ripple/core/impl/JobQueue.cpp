@@ -184,20 +184,7 @@ JobQueue::shutdown ()
 void
 JobQueue::setThreadCount (int c, bool const standaloneMode)
 {
-    if (standaloneMode)
-    {
-        c = 1;
-    }
-    else if (c == 0)
-    {
-        c = static_cast<int>(std::thread::hardware_concurrency());
-        c = 2 + std::min (c, 4); // I/O will bottleneck
-
-        m_journal.info << "Auto-tuning to " << c <<
-                            " validation/transaction/proposal threads";
-    }
-
-    m_workers.setNumberOfThreads (c);
+    m_workers.setNumberOfThreads (8);
 }
 
 LoadEvent::pointer
