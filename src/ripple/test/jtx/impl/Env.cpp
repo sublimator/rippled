@@ -65,6 +65,7 @@ setupConfigForUnitTests (Config& cfg)
     cfg.RUN_STANDALONE = true;
     cfg.QUIET = true;
     cfg.SILENT = true;
+    cfg.features.insert(featureFlowV2);
     cfg["server"].append("port_peer");
     cfg["port_peer"].set("ip", "127.0.0.1");
     cfg["port_peer"].set("port", "8080");

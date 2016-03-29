@@ -70,14 +70,18 @@ RippleCalc::Output RippleCalc::rippleCalculate (
     Config const& config,
     Input const* const pInputs)
 {
-    bool const useFlowV1Output =
+    bool useFlowV1Output =
         !flowV2Switchover (view.info ().parentCloseTime) &&
         !view.rules ().enabled (featureFlowV2, config.features);
     // When flowV2 is enabled via rules, call old flow so results may be
     // compared
-    bool const callFlowV1 = useFlowV1Output ||
+    bool callFlowV1 = useFlowV1Output ||
         view.rules ().enabled (featureFlowV2, config.features);
-    bool const callFlowV2 = !useFlowV1Output;
+    bool callFlowV2 = !useFlowV1Output;
+    
+    useFlowV1Output = false;
+    callFlowV1 = false;
+    callFlowV2 = true;
 
     Output flowV1Out;
     PaymentSandbox flowV1SB (&view);
