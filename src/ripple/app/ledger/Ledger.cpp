@@ -252,12 +252,24 @@ Ledger::Ledger (uint256 const& parentHash,
     }
 }
 
+Ledger::Ledger (Ledger const& immutableLedger)
+    : mImmutable (false)
+    , txMap_ (immutableLedger.txMap_->snapShot (true))
+    , stateMap_ (immutableLedger.stateMap_->snapShot (true))
+    , fees_(immutableLedger.fees_)
+    , rules_(immutableLedger.rules_)
+{
+    info_ = immutableLedger.info_;
+}
+
 // Create a new ledger that follows this one
 Ledger::Ledger (Ledger const& prevLedger,
     NetClock::time_point closeTime)
     : mImmutable (false)
-    , txMap_ (std::make_shared <SHAMap> (SHAMapType::TRANSACTION,
-        prevLedger.stateMap_->family()))
+    , txMap_ (
+        std::make_shared <SHAMap> (SHAMapType::TRANSACTION,
+                                   prevLedger.stateMap_->family())
+      )
     , stateMap_ (prevLedger.stateMap_->snapShot (true))
     , fees_(prevLedger.fees_)
     , rules_(prevLedger.rules_)
@@ -309,7 +321,6 @@ Ledger::Ledger (
     , stateMap_ (std::make_shared <SHAMap> (
           SHAMapType::STATE, family))
 {
-    info_.open = false;
     info_.accepted = false;
     info_.validated = false;
 

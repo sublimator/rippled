@@ -207,16 +207,47 @@ static int runUnitTests(
 // TODO:HACK:
 #include "HistoryReplay.cpp"
 
+
+void
+setupConfigForUnitTests2 (Config& cfg)
+{
+    cfg.overwrite (ConfigSection::nodeDatabase (), "type", "memory");
+    cfg.overwrite (ConfigSection::nodeDatabase (), "path", "main");
+    cfg.deprecatedClearSection (ConfigSection::importNodeDatabase ());
+    cfg.legacy("database_path", "");
+    cfg.RUN_STANDALONE = true;
+    cfg.QUIET = true;
+    cfg.SILENT = true;
+    cfg["server"].append("port_peer");
+    cfg["port_peer"].set("ip", "127.0.0.1");
+    cfg["port_peer"].set("port", "8080");
+    cfg["port_peer"].set("protocol", "peer");
+    cfg["server"].append("port_http");
+    cfg["port_http"].set("ip", "127.0.0.1");
+    cfg["port_http"].set("port", "8081");
+    cfg["port_http"].set("protocol", "http");
+    cfg["port_http"].set("admin", "127.0.0.1");
+    cfg["server"].append("port_ws");
+    cfg["port_ws"].set("ip", "127.0.0.1");
+    cfg["port_ws"].set("port", "8082");
+    cfg["port_ws"].set("protocol", "ws");
+    cfg["port_ws"].set("admin", "127.0.0.1");
+}
+
 static
 int
 doProcessHistoricalTransactions ()
 {
     auto config = std::make_unique<Config>();
-    setupConfigForUnitTests(*config);
+    auto logs = std::make_unique<Logs>(beast::severities::kFatal);
+    auto timeKeeper = make_TimeKeeper(logs->journal("TimeKeeper"));
+
+    setupConfigForUnitTests2(*config);
 
     auto app = make_Application (
         std::move(config),
-        std::make_unique<Logs>());
+        std::move(logs),
+        std::move(timeKeeper) );
 
     processHistoricalTransactions(*app);
     std::cerr << "OK! " << std::endl;
