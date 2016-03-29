@@ -28,14 +28,15 @@ static int maxDeltas (2147483648); // 2 ^ 31
 typedef std::shared_ptr<SHAMap> SHAMapPtr;
 typedef std::shared_ptr<Ledger> LedgerPtr;
 typedef std::shared_ptr<STTx> STTxPtr;
+typedef const LedgerPtr& LedgerRef;
 
 typedef std::map<uint256, std::pair<SLE::pointer, SLE::pointer>> SLEShaMapDelta;
 
 typedef std::function<void (
                     // OpenLedger immutable
-                    Ledger::ref,
+                    LedgerRef,
                     // Tx Meta Applied immutable
-                    Ledger::ref,
+                    LedgerRef,
                     // Txn hash/id
                     uint256&,
                     // TransactionIndex
@@ -167,8 +168,9 @@ public:
         }
         else
         {
-            return accountState.addItem(item, /*is_tx=*/false,
-                                               /*has_meta=*/false);
+            return accountState.addItem(std::move(item),
+                                        /*is_tx=*/false,
+                                        /*has_meta=*/false);
         }
     }
 
@@ -285,7 +287,7 @@ public:
             // Ledger is immutable
             LedgerPtr b4Tx = snapShot;
 
-            TIMEIT(snapShot = std::make_shared<Ledger> (std::ref(*b4Tx), true));
+            TIMEIT(snapShot = std::make_shared<Ledger> (std::ref(*b4Tx)));
 
             nextFrame();
             assert(frame == Frame::loadAccountStateDelta);
@@ -300,7 +302,6 @@ public:
 
             auto txp = std::make_shared<Serializer>(&(tx.begin()[0]), tx.size());
             auto metap = std::make_shared<Serializer>(&(meta.begin()[0]), meta.size());
-
             snapShot->rawTxInsert(index, txp, metap);
             TIMEIT(snapShot->setImmutable(app.config()));
 
@@ -351,7 +352,7 @@ public:
         return true;
     }
 
-    void readyMapsForModifying(Ledger::ref ledger)
+    void readyMapsForModifying(LedgerRef ledger)
     {
         ledger->stateMap().clearSynching();
         ledger->txMap().clearSynching();
@@ -416,7 +417,7 @@ public:
             return false;
         }
 
-        snapShot = std::make_shared<Ledger> (std::ref(*snapShot), true);
+        snapShot = std::make_shared<Ledger> (std::ref(*snapShot));
         if (!(loadAccountStateDelta(snapShot->stateMap())))
         {
             assert(false);
@@ -427,8 +428,11 @@ public:
         historicalState = snapShot;
 
         getTreeHashesFrom (header, expectedTransHash, expectedAccountHash);
-        assert (snapShot->txMap().getHash().as_uint256() == expectedTransHash);
         assert (snapShot->info().accountHash == expectedAccountHash);
+
+        // std::cout << "tx expect: " <<  expectedTransHash << std::endl;
+        // std::cout << "tx actual: " <<  snapShot->txMap().getHash().as_uint256() << std::endl;
+        assert (snapShot->txMap().getHash().as_uint256() == expectedTransHash);
 
         return (snapShot->txMap().getHash().as_uint256() == expectedTransHash &&
                 snapShot->info().accountHash == expectedAccountHash);
@@ -441,7 +445,7 @@ struct TransactionLedgers {
                     afterTx,
                     afterHistorical;
 
-    TransactionLedgers(Ledger::ref a, Ledger::ref b, Ledger::ref c) :
+    TransactionLedgers(LedgerRef a, LedgerRef b, LedgerRef c) :
                        beforeTx(a), afterTx(b), afterHistorical(c) {}
 
     void resultDelta(SHAMap::Delta& delta)
@@ -464,7 +468,7 @@ STTxPtr transactionFromBlob(Blob& tx)
     return std::make_shared<STTx> (sit);
 }
 
-bool getMetaBlob(Ledger::ref ledger, uint256& txid, Blob& meta)
+bool getMetaBlob(LedgerRef ledger, uint256& txid, Blob& meta)
 {
     auto item = ledger->txMap().peekItem (txid);
     if (item)
@@ -558,7 +562,7 @@ size_t findMeaningfulDeltas (SHAMap::Delta& deltas,
 
 
 std::shared_ptr<SLE>
-getSLE(Ledger::ref ledger, uint256 const& key)
+getSLE(LedgerRef ledger, uint256 const& key)
 {
     auto const& item =
         ledger->stateMap().peekItem(key);
@@ -567,7 +571,7 @@ getSLE(Ledger::ref ledger, uint256 const& key)
     auto sle = std::make_shared<SLE>(
         SerialIter{item->data(),
             item->size()}, item->key());
-    return std::move(sle);
+    return sle;
 }
 
 
@@ -661,8 +665,8 @@ public:
     {
     }
 
-    // void extrapolateMetaData(Ledger::ref ledger,
-    //                          Ledger::ref applyTo,
+    // void extrapolateMetaData(LedgerRef ledger,
+    //                          LedgerRef applyTo,
     //                          uint256& txid,
     //                          Blob& tx,
     //                          Blob& meta) {
@@ -705,8 +709,8 @@ public:
     // }
 
     void process() {
-        hl.parse([&]( Ledger::ref beforeTransactionApplied,
-                      Ledger::ref afterHistoricalResult,
+        hl.parse([&]( LedgerRef beforeTransactionApplied,
+                      LedgerRef afterHistoricalResult,
                       uint256& txid,
                       std::uint32_t transactionIndex,
                       Blob& tx,
@@ -722,7 +726,7 @@ public:
             // Create a snaphot of the ledger
             LedgerPtr replayLedger (
                     std::make_shared<Ledger> (
-                        std::ref(*beforeTransactionApplied), true) );
+                        std::ref(*beforeTransactionApplied)));
 
             STTxPtr st (transactionFromBlob(tx));
             OpenView openLedger = OpenView(&(*replayLedger));
@@ -898,7 +902,7 @@ void processHistoricalTransactions(Application& app)
 {
     std::cerr << "processHistoricalTransactions" << std::endl;
 
-//     auto t0 = std::chrono::steady_clock::now();
+    auto t0 = std::chrono::steady_clock::now();
 
 //     // Stop this soab from logging crap
 //     LogSeverity const sv (Logs::fromString ("fatal"));
@@ -909,8 +913,8 @@ void processHistoricalTransactions(Application& app)
 
 #if 0
     int txns = 0;
-    hl.parse([&]( Ledger::ref beforeTransactionApplied,
-              Ledger::ref afterHistoricalResult,
+    hl.parse([&]( LedgerRef beforeTransactionApplied,
+              LedgerRef afterHistoricalResult,
               uint256& txid,
               std::uint32_t transactionIndex,
               Blob& tx,
@@ -937,21 +941,21 @@ void processHistoricalTransactions(Application& app)
     // all those damn `.` per txn outputs
     std::cout << std::endl << std::endl;
 
-// // TODO: Clean this up, but for now just piggy backing on all this existing
-// // reporting infrastucture, to compare the C++ expanded meta to that in the
-// // history stream.
-// #if REPLAY_TRANSACTIONS
-//     std::cout << "Finished reprocessing transactions" << std::endl;
-// #else
-//     std::cout << "Finshed reprocessing meta" << std::endl;
-// #endif
+// TODO: Clean this up, but for now just piggy backing on all this existing
+// reporting infrastucture, to compare the C++ expanded meta to that in the
+// history stream.
+#if REPLAY_TRANSACTIONS
+    std::cout << "Finished reprocessing transactions" << std::endl;
+#else
+    std::cout << "Finshed reprocessing meta" << std::endl;
+#endif
 
-//     std::chrono::duration<double, std::milli> ms =
-//             std::chrono::steady_clock::now() - t0;
-//     std::cout << ("\n\n"  "Wrote report to $CWD/") << reportName << std::endl;
-//     std::cout << "Reprocessing took ms: " << ms.count() << std::endl;
+    std::chrono::duration<double, std::milli> ms =
+            std::chrono::steady_clock::now() - t0;
+    std::cout << ("\n\n"  "Wrote report to $CWD/") << reportName << std::endl;
+    std::cout << "Reprocessing took ms: " << ms.count() << std::endl;
 
-//     std::cout << hr.report["stats"];
+    std::cout << hr.report["stats"];
 }
 
 

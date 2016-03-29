@@ -297,6 +297,16 @@ Ledger::Ledger (void const* data,
     // Can't set up until the stateMap is filled in
 }
 
+Ledger::Ledger (Ledger const& immutableLedger)
+    : mImmutable (false)
+    , txMap_ (immutableLedger.txMap_->snapShot (true))
+    , stateMap_ (immutableLedger.stateMap_->snapShot (true))
+    , fees_(immutableLedger.fees_)
+    , rules_(immutableLedger.rules_)
+{
+    info_ = immutableLedger.info_;
+}
+
 Ledger::Ledger (
     Blob& header,
     std::shared_ptr<SHAMap> accountState,
@@ -305,16 +315,16 @@ Ledger::Ledger (
     : mValidHash (false)
     , mImmutable (false)
     , txMap_ (std::make_shared <SHAMap> (
-          SHAMapType::TRANSACTION, family))
+          SHAMapType::TRANSACTION, family, SHAMap::version{1}))
     , stateMap_ (std::make_shared <SHAMap> (
-          SHAMapType::STATE, family))
+          SHAMapType::STATE, family, SHAMap::version{1}))
 {
-    info_.open = false;
+    // info_.open = false;
     info_.accepted = false;
     info_.validated = false;
 
     SerialIter sit (makeSlice(header));
-    setRaw (sit, false, family);
+    setRaw (sit, /*has_prefix=*/ false, family);
     // Can't set up until the stateMap is filled in
     if (accountState)
     {

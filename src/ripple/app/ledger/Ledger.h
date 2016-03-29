@@ -80,8 +80,8 @@ class Ledger final
 public:
     static char const* getCountedObjectName () { return "Ledger"; }
 
-    Ledger (Ledger const&) = delete;
-    Ledger& operator= (Ledger const&) = delete;
+    // Ledger (Ledger const&) = delete;
+    // Ledger& operator= (Ledger const&) = delete;
 
     /** Create the Genesis ledger.
 
@@ -106,6 +106,8 @@ public:
             std::uint32_t ledgerSeq, bool & loaded, Config const& config,
             Family& family,
             beast::Journal j);
+
+    Ledger (Ledger const& immutable);
 
     /** Create a new ledger following a previous ledger
 
