@@ -9,6 +9,7 @@
 
 #include <ripple/http/Server.h>
 #include <fstream>
+#include <iostream>
 
 #include <ripple/rpc/impl/JsonObject.h>
 #include <ripple/rpc/impl/JsonWriter.h>
@@ -908,8 +909,8 @@ void processHistoricalTransactions(Application& app)
 //     LogSeverity const sv (Logs::fromString ("fatal"));
 //     auto severity = Logs::toSeverity(sv);
 //     deprecatedLogs().severity(severity);
-
-    HistoryLoader hl( std::cin, app );
+    std::ifstream history_pack (std::getenv("HISTORY_PACK"));
+    HistoryLoader hl( /* std::cin */ history_pack, app );
 
 #if 0
     int txns = 0;
