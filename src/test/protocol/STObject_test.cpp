@@ -723,17 +723,17 @@ class ProtocolJson_test : public beast::unit_test::suite
 {
 public:
     std::string
-    requirementString(SOE_Flags flags)
+    requirementString(SOEStyle style)
     {
         std::string requirement = "";
-        switch (flags) {
-            case SOE_REQUIRED:
+        switch (style) {
+            case soeREQUIRED:
                 requirement = "REQUIRED";
                 break;
-            case SOE_OPTIONAL:
+            case soeOPTIONAL:
                 requirement = "OPTIONAL";
                 break;
-            case SOE_DEFAULT:
+            case soeDEFAULT:
                 requirement = "DEFAULT";
                 break;
             default:
@@ -758,10 +758,10 @@ public:
                 tx["ordinal"] = o;
                 auto& fields = tx["fields"] = Json::Value(Json::arrayValue);
 
-                for (auto& p : format->elements.all()) {
+                for (auto& p : format->getSOTemplate()) {
                     auto& field = fields.append(Json::arrayValue);
-                    field.append(p->e_field.jsonName);
-                    field.append(requirementString(p->flags));
+                    field.append(p.sField().jsonName);
+                    field.append(requirementString(p.style()));
                 }
             }
         }
