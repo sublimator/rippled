@@ -328,6 +328,20 @@ SField::getField(int code)
     return sfInvalid;
 }
 
+Json::Value
+SField::allFieldsJson()
+{
+    Json::Value all(Json::arrayValue);
+    for (auto const& pair : knownCodeToField)
+    {
+        if (pair.second->isBinary())
+        {
+            Json::Value& obj(all.append(pair.second->toJson()));
+        }
+    }
+    return all;
+}
+
 int
 SField::compare(SField const& f1, SField const& f2)
 {
