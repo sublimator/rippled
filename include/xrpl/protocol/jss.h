@@ -203,6 +203,7 @@ JSS(code);                    // out: errors
 JSS(command);                 // in: RPCHandler
 JSS(complete);                // out: NetworkOPs, InboundLedger
 JSS(complete_ledgers);        // out: NetworkOPs, PeerImp
+JSS(compression_level);       // in/out: catalogue_create
 JSS(consensus);               // out: NetworkOPs, LedgerConsensus
 JSS(converge_time);           // out: NetworkOPs
 JSS(converge_time_s);         // out: NetworkOPs
@@ -280,6 +281,8 @@ JSS(fee_ref);                 // out: NetworkOPs, DEPRECATED
 JSS(fetch_pack);              // out: NetworkOPs
 JSS(FIELDS);                  // out: RPC server_definitions
                               // matches definitions.json format
+JSS(file_size);               // out: catalogue_create
+JSS(file_size_human);         // out: catalogue_create
 JSS(first);                   // out: rpc/Version
 JSS(finished);
 JSS(fix_txns);                // in: LedgerCleaner
@@ -368,6 +371,7 @@ JSS(ledger_index_min);        // in, out: AccountTx*
 JSS(ledger_max);              // in, out: AccountTx*
 JSS(ledger_min);              // in, out: AccountTx*
 JSS(ledger_time);             // out: NetworkOPs
+JSS(ledgers_written);         // out: catalogue_create  
 JSS(LEDGER_ENTRY_TYPES);      // out: RPC server_definitions
                               // matches definitions.json format
 JSS(levels);                  // LogLevels
@@ -471,6 +475,7 @@ JSS(open_ledger_fee);         // out: TxQ
 JSS(open_ledger_level);       // out: TxQ
 JSS(oracles);                 // in: get_aggregate_price
 JSS(oracle_document_id);      // in: get_aggregate_price
+JSS(output_file);             // in: catalogue_create
 JSS(owner);                   // in: LedgerEntry, out: NetworkOPs
 JSS(owner_funds);             // in/out: Ledger, NetworkOPs, AcceptedLedgerTx
 JSS(page_index);

@@ -51,6 +51,12 @@ doBlackList(RPC::JsonContext&);
 Json::Value
 doCanDelete(RPC::JsonContext&);
 Json::Value
+doCatalogueCreate(RPC::JsonContext&);
+Json::Value
+doCatalogueStatus(RPC::JsonContext&);
+Json::Value
+doCatalogueLoad(RPC::JsonContext&);
+Json::Value
 doChannelAuthorize(RPC::JsonContext&);
 Json::Value
 doChannelVerify(RPC::JsonContext&);

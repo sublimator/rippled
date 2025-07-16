@@ -6,6 +6,7 @@ find_package(Boost 1.82 REQUIRED
     coroutine
     date_time
     filesystem
+    iostreams
     json
     program_options
     regex
@@ -30,6 +31,7 @@ target_link_libraries(ripple_boost
     Boost::coroutine
     Boost::date_time
     Boost::filesystem
+    Boost::iostreams
     Boost::json
     Boost::program_options
     Boost::regex

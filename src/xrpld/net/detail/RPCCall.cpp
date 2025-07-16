@@ -387,6 +387,65 @@ private:
         return jvRequest;
     }
 
+    // catalogue_create <min_ledger> <max_ledger> <output_file> [compression_level]
+    Json::Value
+    parseCatalogueCreate(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 3)
+        {
+            jvRequest[jss::min_ledger] = jvParams[0u].asUInt();
+            jvRequest[jss::max_ledger] = jvParams[1u].asUInt();
+            jvRequest[jss::output_file] = jvParams[2u].asString();
+
+            if (jvParams.size() >= 4)
+            {
+                // Handle compression level parameter
+                if (jvParams[3u].isString())
+                {
+                    // If string parameter, convert to integer
+                    jvRequest[jss::compression_level] =
+                        beast::lexicalCast<std::uint32_t>(
+                            jvParams[3u].asString());
+                }
+                else
+                {
+                    jvRequest[jss::compression_level] = jvParams[3u].asUInt();
+                }
+            }
+        }
+
+        return jvRequest;
+    }
+
+    // catalogue_load <input_file> [ignore_hash]
+    Json::Value
+    parseCatalogueLoad(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 1)
+        {
+            jvRequest["input_file"] = jvParams[0u].asString();
+
+            if (jvParams.size() >= 2)
+            {
+                // Handle ignore_hash parameter
+                if (jvParams[1u].isString())
+                {
+                    jvRequest["ignore_hash"] = (jvParams[1u].asString() == "true");
+                }
+                else
+                {
+                    jvRequest["ignore_hash"] = jvParams[1u].asBool();
+                }
+            }
+        }
+
+        return jvRequest;
+    }
+
     // connect <ip[:port]> [port]
     Json::Value
     parseConnect(Json::Value const& jvParams)
@@ -1230,6 +1289,9 @@ public:
             {"book_changes", &RPCParser::parseLedgerId, 1, 1},
             {"book_offers", &RPCParser::parseBookOffers, 2, 7},
             {"can_delete", &RPCParser::parseCanDelete, 0, 1},
+            {"catalogue_create", &RPCParser::parseCatalogueCreate, 3, 4},
+            {"catalogue_status", &RPCParser::parseAsIs, 0, 0},
+            {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 2},
             {"channel_authorize", &RPCParser::parseChannelAuthorize, 3, 4},
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},
             {"connect", &RPCParser::parseConnect, 1, 2},
