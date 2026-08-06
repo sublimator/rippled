@@ -351,6 +351,19 @@ invokeProtocolMessage(Buffers const& buffers, Handler& handler, std::size_t& hin
         return result;
     }
 
+    // Drop an oversized TMManifests without penalty: consume the bytes and
+    // return no error, so the connection is preserved. The limit follows this
+    // node's configured manifests-per-message count.
+    if (header->messageType == protocol::mtMANIFESTS)
+    {
+        auto const maxSize = handler.maxManifestsMessageSize();
+        if (header->payloadWireSize > maxSize || header->uncompressedSize > maxSize)
+        {
+            result.first = header->totalWireSize;
+            return result;
+        }
+    }
+
     bool success = false;
 
     switch (header->messageType)
